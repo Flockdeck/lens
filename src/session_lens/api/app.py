@@ -62,8 +62,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
+        store = getattr(app.state, "store", None)  # only set once the lazy provider built it
+        try:
+            if store is not None:
+                await store.aclose()
+        except Exception as exc:
+            log.warning("store close failed", extra={"exc_type": type(exc).__name__})
         await engine.dispose()
 
     # Interactive docs and the schema are only exposed in explicit dev mode.

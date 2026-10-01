@@ -77,6 +77,7 @@ class InMemoryStore:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.healthy = True
+        self.close_calls = 0
 
     async def put(self, key: str, data: bytes) -> None:
         self.objects[key] = data
@@ -88,6 +89,9 @@ class InMemoryStore:
 
     async def delete(self, key: str) -> None:
         self.objects.pop(key, None)
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
 
     async def ping(self) -> None:
         if not self.healthy:

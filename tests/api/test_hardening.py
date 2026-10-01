@@ -360,3 +360,27 @@ async def test_enrichment_row_unchanged_after_failed_reenrich(
     assert (await client.post(f"/sessions/{row.id}/enrich")).status_code == 502
     kept = (await db.execute(select(Enrichment))).scalars().one()
     assert kept.summary == "summary of s1"
+
+
+async def test_lifespan_closes_a_built_store(app_settings: Settings, store: InMemoryStore) -> None:
+    app = create_app(app_settings)
+    async with app.router.lifespan_context(app):
+        app.state.store = store  # what the lazy provider does on first use
+    assert store.close_calls == 1
+
+
+async def test_lifespan_without_built_store_and_failing_close(
+    app_settings: Settings, store: InMemoryStore
+) -> None:
+    app = create_app(app_settings)
+    async with app.router.lifespan_context(app):
+        pass  # never built: nothing to close, no error
+
+    async def boom() -> None:
+        raise ConnectionError("close failed")
+
+    store.aclose = boom  # type: ignore[method-assign]
+    app = create_app(app_settings)
+    async with app.router.lifespan_context(app):
+        app.state.store = store
+    # a failing close must not stop shutdown (engine disposal still runs)
