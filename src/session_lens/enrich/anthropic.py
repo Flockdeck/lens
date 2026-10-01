@@ -14,6 +14,7 @@ from session_lens.enrich.prompt import (
     LLMEnrichment,
     build_user_message,
     output_schema,
+    supplied_seqs,
 )
 from session_lens.recording.models import Analysis
 
@@ -47,17 +48,41 @@ class AnthropicEnricher:
 
     async def enrich(self, analysis: Analysis) -> EnrichmentResult:
         user_message = build_user_message(analysis)
+        allowed_seqs = supplied_seqs(analysis)
         input_tokens = 0
         output_tokens = 0
+        max_tokens = self._max_tokens
+        grew = False
         parsed: LLMEnrichment | None = None
 
+        def fail(message: str, *, retryable: bool = False) -> EnrichmentError:
+            return EnrichmentError(
+                message,
+                retryable=retryable,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+
         for attempt in range(1, self._max_attempts + 1):
-            message = await self._call(user_message)
+            try:
+                message = await self._call(user_message, max_tokens)
+            except EnrichmentError as exc:
+                # Carry what earlier attempts already spent.
+                exc.input_tokens, exc.output_tokens = input_tokens, output_tokens
+                raise
             input_tokens += message.usage.input_tokens
             output_tokens += message.usage.output_tokens
 
             if message.stop_reason == "refusal":
-                raise EnrichmentError("model refused to enrich the session", retryable=False)
+                raise fail("model refused to enrich the session")
+            if message.stop_reason == "max_tokens":
+                # The same request would be cut off again: retry once with more room, then stop.
+                if grew:
+                    raise fail(f"output truncated at max_tokens={max_tokens}")
+                grew = True
+                max_tokens *= 2
+                log.warning("output hit max_tokens, retrying with max_tokens=%d", max_tokens)
+                continue
 
             text = "".join(b.text for b in message.content if b.type == "text")
             try:
@@ -74,32 +99,38 @@ class AnthropicEnricher:
                 )
 
         if parsed is None:
-            raise EnrichmentError(
-                f"model returned malformed output {self._max_attempts} times", retryable=False
-            )
+            raise fail(f"model returned no valid output in {self._max_attempts} attempts")
 
+        # The model may only refer to seqs it was given; drop or null anything else.
         return EnrichmentResult(
             summary=parsed.summary,
             category=parsed.category,
             outcome=parsed.outcome,
             frustration=parsed.frustration,
             stuck_points=[
-                StuckPoint(description=s.description, approx_seq=s.approx_seq)
+                StuckPoint(
+                    description=s.description,
+                    approx_seq=s.approx_seq if s.approx_seq in allowed_seqs else None,
+                )
                 for s in parsed.stuck_points
             ],
             prompt_feedback=parsed.prompt_feedback,
-            risk_notes=[RiskNote(seq=r.seq, explanation=r.explanation) for r in parsed.risk_notes],
+            risk_notes=[
+                RiskNote(seq=r.seq, explanation=r.explanation)
+                for r in parsed.risk_notes
+                if r.seq in allowed_seqs
+            ],
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             model=self._model,
             prompt_version=PROMPT_VERSION,
         )
 
-    async def _call(self, user_message: str) -> Any:
+    async def _call(self, user_message: str, max_tokens: int) -> Any:
         try:
             return await self._client.messages.create(
                 model=self._model,
-                max_tokens=self._max_tokens,
+                max_tokens=max_tokens,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
                 output_config={"format": {"type": "json_schema", "schema": output_schema()}},

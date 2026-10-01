@@ -39,9 +39,14 @@ class EnrichmentError(Exception):
     Messages never include recording content.
     """
 
-    def __init__(self, message: str, *, retryable: bool) -> None:
+    def __init__(
+        self, message: str, *, retryable: bool, input_tokens: int = 0, output_tokens: int = 0
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        # Tokens spent on attempts that produced no result, so callers can still account for them.
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
 
 
 class Enricher(Protocol):
