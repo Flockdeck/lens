@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from tests.api.standins import InMemoryStore
+from session_lens.storage.memory import InMemoryStore
 
 
 async def test_probes_need_no_token(client: httpx.AsyncClient) -> None:
@@ -35,7 +35,10 @@ async def test_static_ui_hides_python_sources(client: httpx.AsyncClient) -> None
 
 
 async def test_readyz_503_when_store_down(client: httpx.AsyncClient, store: InMemoryStore) -> None:
-    store.healthy = False
+    async def down() -> None:
+        raise ConnectionError("store down")
+
+    store.ping = down  # type: ignore[method-assign]
     assert (await client.get("/readyz")).status_code == 503
     assert (await client.get("/healthz")).status_code == 200
 

@@ -15,15 +15,13 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from session_lens.api.app import create_app
-from session_lens.api.deps import get_queue, get_store_provider
+from session_lens.api.deps import get_store_provider
 from session_lens.config import Settings
 from session_lens.db.models import Base
-from tests.api.standins import FakeQueue, InMemoryStore, importable, install_stubs
+from session_lens.storage.memory import InMemoryStore
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-install_stubs()
 
 
 @pytest_asyncio.fixture
@@ -66,8 +64,6 @@ async def client(
 ) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(app_settings)
     app.dependency_overrides[get_store_provider] = lambda: lambda: store
-    if not importable("session_lens.worker.queue"):
-        app.dependency_overrides[get_queue] = lambda: FakeQueue()
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -78,11 +74,26 @@ async def client(
 
 
 def jsonl(*seqs: int) -> bytes:
+    """A small valid v1 recording with one user_prompt event per given seq."""
     import json
 
     return b"".join(
-        json.dumps({"v": 1, "seq": s, "type": "user_prompt", "text": f"line {s}"}).encode() + b"\n"
-        for s in seqs
+        json.dumps(
+            {
+                "v": 1,
+                "seq": seq,
+                "time": f"2026-01-05T10:00:{seq % 60:02d}Z",
+                "session": "sess-1",
+                "pane": "pane-1",
+                "project": "proj",
+                "agent": "claude",
+                "model": "m1",
+                "type": "user_prompt",
+                "text": f"prompt {seq}",
+            }
+        ).encode()
+        + b"\n"
+        for seq in seqs
     )
 
 

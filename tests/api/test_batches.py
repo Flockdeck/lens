@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.db.models import BatchItem, ItemStatus, RawRecording
-from tests.api.standins import InMemoryStore
+from session_lens.storage.memory import InMemoryStore
 
 
 def files(*parts: tuple[str, bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
