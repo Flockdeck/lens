@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -67,12 +68,66 @@ async def test_resubmitting_same_content_is_free(sm, store):
     assert await count(sm, Session) == 1 and await count(sm, Enrichment) == 1
 
 
-async def test_grown_session_is_a_new_row(sm, store):
+async def test_longer_upload_supersedes_the_session_in_place(sm, store):
     enricher = FakeEnricher()
-    files = [("a.jsonl", recording("s1")), ("b.jsonl", recording("s1", extra="more"))]
-    await run_one(sm, store, enricher, files)
-    assert enricher.calls == 2
-    assert await count(sm, Session) == 2
+    await run_one(sm, store, enricher, [("a.jsonl", recording("s1"))])
+    async with sm() as db:
+        first = (await db.execute(select(Session))).scalar_one()
+        first_id, first_hash, first_raw = first.id, first.content_hash, first.raw_id
+        first_enrichment = (await db.execute(select(Enrichment))).scalar_one().id
+    await run_one(sm, store, enricher, [("b.jsonl", recording("s1", extra="grown"))])
+    assert enricher.calls == 2  # re-enriched
+    async with sm() as db:
+        sessions = (await db.execute(select(Session))).scalars().all()
+        assert [s.id for s in sessions] == [first_id]  # one row per recording_session
+        assert sessions[0].content_hash != first_hash
+        assert sessions[0].raw_id != first_raw  # points at the newer upload
+        enrichments = (await db.execute(select(Enrichment))).scalars().all()
+        assert [(e.id, e.session_id) for e in enrichments] == [(first_enrichment, first_id)]
+
+
+async def test_same_content_is_skipped_even_after_a_supersede_cycle(sm, store):
+    enricher = FakeEnricher()
+    await run_one(sm, store, enricher, [("a.jsonl", recording("s1", extra="v2"))])
+    await run_one(sm, store, enricher, [("b.jsonl", recording("s1", extra="v2"))])
+    assert enricher.calls == 1
+
+
+async def test_session_without_enrichment_is_enriched_on_resubmit(sm, store):
+    enricher = FakeEnricher([retryable()])
+    await run_one(sm, store, enricher, [("a.jsonl", recording("s1"))])  # enrichment failed
+    assert await count(sm, Enrichment) == 0
+    await run_one(sm, store, enricher, [("b.jsonl", recording("s1"))])  # same content
+    assert await count(sm, Session) == 1 and await count(sm, Enrichment) == 1
+
+
+async def test_two_workers_inserting_the_same_session_at_once(sm, store):
+    """Both pass the 'does it exist' check before either inserts; the loser must update the
+    winner's row instead of failing."""
+    from session_lens.worker import processor as proc
+
+    files = [("a.jsonl", recording("race")), ("b.jsonl", recording("race", extra="longer"))]
+    _, ids = await make_batch(sm, store, files)
+    claims = await claim_items(sm, 2)
+    seen = asyncio.Barrier(2)
+    original = proc.upsert_session
+
+    async def synchronised(db, analysis, content_hash, raw_id):
+        async with db.begin_nested():  # existence check happens inside upsert_session
+            pass
+        await seen.wait()  # both are about to run the check against an empty table
+        return await original(db, analysis, content_hash, raw_id)
+
+    enricher = FakeEnricher()
+    p = processor(sm, store, enricher)
+    try:
+        proc.upsert_session = synchronised
+        await asyncio.gather(*(p.process(c) for c in claims))
+    finally:
+        proc.upsert_session = original
+    assert await count(sm, Session) == 1
+    for i in ids:
+        assert (await get_item(sm, i)).status == ItemStatus.done
 
 
 @pytest.mark.parametrize("data", [recording("s1", v=2), b""])
@@ -153,7 +208,7 @@ async def test_unexpected_error_is_retryable_and_leaks_no_text(sm, store):
 async def test_timeout_is_retryable(sm, store):
     _, ids = await make_batch(sm, store, [("a.jsonl", recording())])
     (claim,) = await claim_items(sm, 1)
-    await processor(sm, store, FakeEnricher(delay=5), timeout=0.05).process(claim)
+    await processor(sm, store, FakeEnricher(gated=True), timeout=0.05).process(claim)  # hangs
     item = await get_item(sm, ids[0])
     assert item.status == ItemStatus.queued and "timed out" in item.error
 

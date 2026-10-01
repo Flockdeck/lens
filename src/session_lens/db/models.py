@@ -13,10 +13,10 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -46,6 +46,7 @@ class ItemStatus(enum.StrEnum):
 
 class Batch(Base):
     __tablename__ = "batches"
+    __table_args__ = (Index("ix_batches_created_at_status", "created_at", "status"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.queued)
@@ -70,11 +71,12 @@ class RawRecording(Base):
 
 class BatchItem(Base):
     __tablename__ = "batch_items"
+    __table_args__ = (Index("ix_batch_items_status_not_before", "status", "not_before"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id", ondelete="CASCADE"), index=True)
     filename: Mapped[str] = mapped_column(String(255))
-    status: Mapped[ItemStatus] = mapped_column(Enum(ItemStatus), default=ItemStatus.queued, index=True)
+    status: Mapped[ItemStatus] = mapped_column(Enum(ItemStatus), default=ItemStatus.queued)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     not_before: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # backoff
     locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # claim time
@@ -89,13 +91,13 @@ class BatchItem(Base):
 
 
 class Session(Base):
-    """One recording session. Idempotency key: (recording_session, content_hash)."""
+    """One row per recording session. `content_hash` is the hash of the content it was last
+    computed from; a longer upload of the same session supersedes it in place."""
 
     __tablename__ = "sessions"
-    __table_args__ = (UniqueConstraint("recording_session", "content_hash"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    recording_session: Mapped[str] = mapped_column(String(128), index=True)  # `session` in the file
+    recording_session: Mapped[str] = mapped_column(String(128), unique=True)  # `session` in the file
     content_hash: Mapped[str] = mapped_column(String(64))
     project: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     agent: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)

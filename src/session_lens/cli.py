@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -15,7 +16,7 @@ from pathlib import Path
 from session_lens.config import get_settings
 from session_lens.worker.cleanup import CleanupResult
 
-API_APP = "session_lens.api.main:app"  # the api component's ASGI app
+API_APP = "session_lens.api.app:create_app"  # the api component's app factory
 
 _STD_ATTRS = set(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {"message", "asctime"}
 
@@ -46,8 +47,29 @@ def configure_logging(level: str) -> None:
 def cmd_api(args: argparse.Namespace) -> int:
     import uvicorn
 
-    uvicorn.run(API_APP, host=args.host, port=args.port, log_config=None)
+    uvicorn.run(API_APP, factory=True, host=args.host, port=args.port, log_config=None)
     return 0
+
+
+def _install_signal_handlers(stop: asyncio.Event) -> None:
+    """First SIGINT/SIGTERM starts a graceful drain; a second one exits immediately (claims
+    left behind go stale and are recovered by the next worker)."""
+    count = 0
+
+    def handle(*_: object) -> None:
+        nonlocal count
+        count += 1
+        if count == 1:
+            stop.set()
+        else:
+            os._exit(1)
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, handle)
+        except NotImplementedError:  # Windows
+            signal.signal(sig, lambda *_: loop.call_soon_threadsafe(handle))
 
 
 async def _worker() -> None:
@@ -58,17 +80,12 @@ async def _worker() -> None:
 
     settings = get_settings()
     stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, stop.set)
-        except NotImplementedError:  # Windows
-            signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
+    _install_signal_handlers(stop)
+    store = build_store(settings)
     try:
-        await run_worker(
-            get_sessionmaker(), build_store(settings), build_enricher(settings), settings, stop
-        )
+        await run_worker(get_sessionmaker(), store, build_enricher(settings), settings, stop)
     finally:
+        await store.aclose()
         await dispose_engine()
 
 
@@ -89,7 +106,13 @@ async def _cleanup() -> CleanupResult:
 
 def cmd_cleanup(_: argparse.Namespace) -> int:
     result = asyncio.run(_cleanup())
-    print(f"expired {result.raws_expired} raw recordings, deleted {result.batches_deleted} batches")
+    if result.skipped:
+        print("cleanup skipped: another run holds the lock")
+    else:
+        print(
+            f"expired {result.raws_expired} raw recordings, "
+            f"deleted {result.batches_deleted} batches"
+        )
     return 0
 
 
@@ -98,17 +121,26 @@ def _alembic_ini() -> Path:
     return ini if ini.exists() else Path("alembic.ini")  # installed image: working directory
 
 
+EXIT_OUTDATED = 1
+EXIT_UNREACHABLE = 2
+
+
 async def _db_revision() -> str | None:
+    """The revision in alembic_version, or None if the table does not exist yet. Raises
+    OperationalError-family errors if the database is unreachable."""
     from sqlalchemy import text
-    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.exc import ProgrammingError
 
     from session_lens.db.session import dispose_engine, get_engine
 
     try:
         async with get_engine().connect() as conn:
-            return (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar()
-    except DBAPIError:  # unreachable DB or no alembic_version table yet
-        return None
+            try:
+                return (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar()
+            except ProgrammingError:  # no alembic_version table: never migrated
+                return None
     finally:
         await dispose_engine()
 
@@ -116,25 +148,68 @@ async def _db_revision() -> str | None:
 def cmd_migrate(args: argparse.Namespace) -> int:
     ini = _alembic_ini()
     if args.check:
-        # Exit 0 only when the database is at the head revision; for init containers that
-        # wait for the schema.
+        # Exit 0 only when the database is at head; 1 if the schema is outdated or missing;
+        # 2 if the database is unreachable. For init containers that wait for the schema.
         from alembic.config import Config
         from alembic.script import ScriptDirectory
+        from sqlalchemy.exc import SQLAlchemyError
 
-        cfg = Config(str(ini))
-        head = ScriptDirectory.from_config(cfg).get_current_head()
-        current = asyncio.run(_db_revision())
-        print(f"head={head} current={current}")
-        return 0 if current == head else 1
+        head = ScriptDirectory.from_config(Config(str(ini))).get_current_head()
+        try:
+            current = asyncio.run(_db_revision())
+        except (SQLAlchemyError, OSError) as exc:
+            print(f"database unreachable ({type(exc).__name__})")
+            return EXIT_UNREACHABLE
+        if current == head:
+            print(f"up to date at {head}")
+            return 0
+        print(f"outdated: database at {current}, head is {head}")
+        return EXIT_OUTDATED
     return subprocess.call(
         [sys.executable, "-m", "alembic", "-c", str(ini), "upgrade", "head"], cwd=ini.parent
     )
 
 
+async def _check_bucket(strict: bool) -> int:
+    from session_lens.storage.base import build_store
+
+    settings = get_settings()
+    store = build_store(settings)
+    try:
+        days = await store.expiry_days(settings.s3_prefix)
+    except Exception as exc:  # unreachable, bad credentials, no such bucket
+        print(f"bucket check failed ({type(exc).__name__})")
+        return 2
+    finally:
+        await store.aclose()
+    if days is not None and days <= settings.raw_retention_days:
+        print(f"ok: objects under {settings.s3_prefix} expire after {days} days")
+        return 0
+    found = "no expiry rule" if days is None else f"an expiry rule of {days} days"
+    message = (
+        f"bucket has {found} for prefix {settings.s3_prefix}; "
+        f"expected one of at most {settings.raw_retention_days} days"
+    )
+    logging.getLogger(__name__).warning(message)
+    print(f"warning: {message}")
+    return 1 if strict else 0
+
+
+def cmd_check_bucket(args: argparse.Namespace) -> int:
+    return asyncio.run(_check_bucket(args.strict))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="session-lens")
     sub = parser.add_subparsers(dest="command", required=True)
-    api = sub.add_parser("api", help="serve the HTTP API and web UI")
+    api = sub.add_parser(
+        "api",
+        help="serve the HTTP API and web UI",
+        description=(
+            "Serve the HTTP API and web UI. The app refuses to start with an empty or default "
+            "API_TOKEN unless ALLOW_INSECURE_DEV=1 is set (local development only)."
+        ),
+    )
     api.add_argument("--host", default="0.0.0.0")  # noqa: S104
     api.add_argument("--port", type=int, default=8000)
     api.set_defaults(func=cmd_api)
@@ -142,6 +217,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub.add_parser(
         "cleanup", help="mark raw recordings past retention expired; delete old batches"
     ).set_defaults(func=cmd_cleanup)
+    check = sub.add_parser(
+        "check-bucket",
+        help="warn if the bucket has no lifecycle expiry rule within raw_retention_days",
+    )
+    check.add_argument("--strict", action="store_true", help="exit 1 if the rule is missing")
+    check.set_defaults(func=cmd_check_bucket)
     migrate = sub.add_parser("migrate", help="alembic upgrade head")
     migrate.add_argument(
         "--check",

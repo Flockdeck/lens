@@ -12,7 +12,15 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.config import get_settings
-from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
+from session_lens.db.models import (
+    Batch,
+    BatchItem,
+    BatchStatus,
+    ItemStatus,
+    RawRecording,
+    Session,
+    utcnow,
+)
 from session_lens.storage.base import RecordingExpired, RecordingStore
 
 log = logging.getLogger(__name__)
@@ -56,17 +64,34 @@ async def read_raw(session: AsyncSession, store: RecordingStore, raw_id: int) ->
         raise
 
 
-async def delete_raws_for_hash(
-    session: AsyncSession, store: RecordingStore, content_hash: str
+async def delete_raws_for_session(
+    session: AsyncSession, store: RecordingStore, session_id: int
 ) -> int:
-    """Delete every raw row with this content hash and its object (best effort on the object,
-    then the row). Flushed, not committed. Returns the number of rows deleted."""
-    raws = (
+    """Delete every raw recording linked to a session (its own raw_id, and the raw_id of every
+    batch item that produced it): the object (best effort), then the row. Call it before
+    deleting the Session itself, since it finds the raws through that row. The foreign keys
+    to raw_recordings are SET NULL, so the order is safe. Flushed, not committed. Returns the
+    number of raw rows deleted."""
+    raw_ids = set(
         (
             await session.execute(
-                select(RawRecording).where(RawRecording.content_hash == content_hash)
+                select(Session.raw_id).where(Session.id == session_id, Session.raw_id.is_not(None))
             )
-        )
+        ).scalars()
+    )
+    raw_ids |= set(
+        (
+            await session.execute(
+                select(BatchItem.raw_id).where(
+                    BatchItem.session_id == session_id, BatchItem.raw_id.is_not(None)
+                )
+            )
+        ).scalars()
+    )
+    if not raw_ids:
+        return 0
+    raws = (
+        (await session.execute(select(RawRecording).where(RawRecording.id.in_(raw_ids))))
         .scalars()
         .all()
     )

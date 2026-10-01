@@ -18,8 +18,12 @@ services:
       retries: 20
 
   # S3-compatible object store for raw recordings (DigitalOcean Spaces in the cluster).
+  # NOTE: SeaweedFS accepts and returns the 30-day lifecycle rule (so `session-lens check-bucket`
+  # passes) but does NOT enforce it: `fs.configure` shows no TTL. Locally, objects never expire;
+  # the app's expired_at marking and read_raw behave the same either way. Only Spaces enforces
+  # the rule. SeaweedFS needs path-style addressing (S3_ADDRESSING_STYLE=path if "auto" fails).
   s3:
-    image: chrislusf/seaweedfs:latest
+    image: chrislusf/seaweedfs:4.48
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"]
     ports:
       - "${S3_PORT:-9000}:8333"  # matches the S3_ENDPOINT_URL default
@@ -34,8 +38,9 @@ services:
       timeout: 5s
       retries: 30
 
-  # One-shot: creates the bucket and a 30-day expiry rule on the recordings/ prefix, the same
-  # rule terrawost sets on the Spaces bucket. Safe to re-run.
+  # One-shot: creates the bucket, applies the 30-day expiry rule on recordings/ (the same rule
+  # terrawost sets on the Spaces bucket) and reads it back, failing loudly if the server does
+  # not report it. Safe to re-run.
   s3-init:
     image: amazon/aws-cli:latest
     depends_on:
@@ -45,11 +50,19 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_DEFAULT_REGION: us-east-1
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        aws --endpoint-url http://s3:8333 s3api create-bucket --bucket session-lens 2>/dev/null || true
-        aws --endpoint-url http://s3:8333 s3api put-bucket-lifecycle-configuration --bucket session-lens           --lifecycle-configuration '{"Rules":[{"ID":"expire-recordings","Status":"Enabled","Filter":{"Prefix":"recordings/"},"Expiration":{"Days":30}}]}'
+        s3api="aws --endpoint-url http://s3:8333 s3api"
+        for i in $$(seq 30); do $$s3api list-buckets >/dev/null 2>&1 && break; sleep 1; done  # S3 port may lag the healthcheck
+        $$s3api create-bucket --bucket session-lens 2>/dev/null || true
+        $$s3api put-bucket-lifecycle-configuration --bucket session-lens           --lifecycle-configuration '{"Rules":[{"ID":"expire-recordings","Status":"Enabled","Filter":{"Prefix":"recordings/"},"Expiration":{"Days":30}}]}'
+        days=$$($$s3api get-bucket-lifecycle-configuration --bucket session-lens           --query 'Rules[?Status==`Enabled`&&Filter.Prefix==`recordings/`].Expiration.Days | [0]' --output text)
+        if [ "$$days" != "30" ]; then
+          echo "lifecycle rule not applied (got: $$days)" >&2
+          exit 1
+        fi
+        echo "lifecycle rule applied: recordings/ expire after $$days days (not enforced by SeaweedFS)"
 
 configs:
   s3-config:

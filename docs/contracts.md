@@ -116,8 +116,13 @@ between rows. Helpers in `worker/queue.py` (all take the store explicitly):
 ### Retention and cleanup
 
 - Raw recordings are kept `raw_retention_days` (30). Enforcement is a **bucket lifecycle rule**
-  that expires objects under the prefix after the same number of days (terrawost sets it; for
-  local MinIO, `docker-compose` sets the same rule). The app never lists or sweeps the bucket.
+  that expires objects under the prefix after the same number of days (terrawost sets it on
+  Spaces, the only place it is actually enforced). `docker-compose` applies the same rule to the
+  local SeaweedFS bucket, but SeaweedFS stores it without enforcing it: locally, objects never
+  expire, while the app's `expired_at` marking and `read_raw` behave exactly the same. The app
+  never lists or sweeps the bucket. `session-lens check-bucket [--strict]` reads the bucket's
+  lifecycle configuration and warns (exit 1 with `--strict`) if there is no enabled expiry rule
+  covering the prefix at `raw_retention_days` or fewer; run it as a pre-deploy check or CronJob.
 - `session-lens cleanup` (a daily CronJob) only reconciles the database: it sets `expired_at`
   on rows older than `raw_retention_days`, so the UI and API know the raw is gone without a
   request to the bucket. It does not delete objects. It also deletes finished batches (and

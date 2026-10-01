@@ -2,7 +2,7 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-10-01 13:55:10.099862
+Create Date: 2026-10-01 14:10:01.260705
 """
 
 from collections.abc import Sequence
@@ -28,6 +28,9 @@ def upgrade() -> None:
         ),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        "ix_batches_created_at_status", "batches", ["created_at", "status"], unique=False
     )
     op.create_table(
         "raw_recordings",
@@ -69,14 +72,11 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["raw_id"], ["raw_recordings.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("recording_session", "content_hash"),
+        sa.UniqueConstraint("recording_session"),
     )
     op.create_index(op.f("ix_sessions_agent"), "sessions", ["agent"], unique=False)
     op.create_index(op.f("ix_sessions_model"), "sessions", ["model"], unique=False)
     op.create_index(op.f("ix_sessions_project"), "sessions", ["project"], unique=False)
-    op.create_index(
-        op.f("ix_sessions_recording_session"), "sessions", ["recording_session"], unique=False
-    )
     op.create_index(op.f("ix_sessions_started_at"), "sessions", ["started_at"], unique=False)
     op.create_table(
         "batch_items",
@@ -103,7 +103,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_batch_items_batch_id"), "batch_items", ["batch_id"], unique=False)
-    op.create_index(op.f("ix_batch_items_status"), "batch_items", ["status"], unique=False)
+    op.create_index(
+        "ix_batch_items_status_not_before", "batch_items", ["status", "not_before"], unique=False
+    )
     op.create_table(
         "enrichments",
         sa.Column("id", sa.Integer(), nullable=False),

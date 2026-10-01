@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 1.0
     max_attempts: int = 4
     claim_timeout_seconds: int = 300
+    # On SIGTERM the worker waits this long for in-flight items, then cancels and re-queues them.
+    # Set the pod's terminationGracePeriodSeconds above it.
+    shutdown_grace_seconds: float = 25.0
 
     # Raw recordings live in an S3-compatible bucket (DigitalOcean Spaces in the cluster, MinIO
     # locally and in CI). The bucket's lifecycle rule must expire objects after
@@ -37,6 +40,11 @@ class Settings(BaseSettings):
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_prefix: str = "recordings/"
+    # Spaces works with "virtual"; SeaweedFS (local compose) needs "path". "auto" lets botocore
+    # choose (path-style for IP-address endpoints).
+    s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
+    s3_connect_timeout: float = 5.0
+    s3_read_timeout: float = 30.0
     raw_retention_days: int = 30
     log_level: str = "INFO"
 

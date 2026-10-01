@@ -9,6 +9,7 @@ class InMemoryStore:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
         self.fail_put = False
+        self.closed = False
 
     async def put(self, key: str, data: bytes) -> None:
         if self.fail_put:
@@ -26,3 +27,9 @@ class InMemoryStore:
 
     async def ping(self) -> None:
         return None
+
+    async def expiry_days(self, prefix: str) -> int | None:
+        return None
+
+    async def aclose(self) -> None:
+        self.closed = True

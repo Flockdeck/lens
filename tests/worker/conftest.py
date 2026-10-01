@@ -140,5 +140,7 @@ async def s3_store() -> AsyncIterator[RecordingStore]:
     """The real S3 path against the compose object store, under a prefix unique to the test."""
     patch = pytest.MonkeyPatch()
     patch.setattr(get_settings(), "s3_prefix", f"recordings/test-{uuid.uuid4().hex[:8]}/")
-    yield build_store(Settings())
+    s3 = build_store(Settings())
+    yield s3
+    await s3.aclose()
     patch.undo()

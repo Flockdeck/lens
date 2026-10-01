@@ -106,7 +106,8 @@ async def run_worker(
     settings: Settings,
     stop: asyncio.Event,
 ) -> None:
-    """Run until `stop` is set, then let in-flight items finish."""
+    """Run until `stop` is set, then give in-flight items `shutdown_grace_seconds` to finish;
+    any still running after that are cancelled and re-queued."""
     processor = ItemProcessor(
         sm,
         store,
@@ -147,6 +148,16 @@ async def run_worker(
             with contextlib.suppress(asyncio.CancelledError):
                 await stopper
     if inflight:
-        log.info("draining", extra={"inflight": len(inflight)})
-        await asyncio.gather(*inflight, return_exceptions=True)
+        log.info(
+            "draining",
+            extra={"inflight": len(inflight), "grace_seconds": settings.shutdown_grace_seconds},
+        )
+        _, pending = await asyncio.wait(inflight, timeout=settings.shutdown_grace_seconds)
+        if pending:
+            # Out of time: cancel the rest. Each task re-queues its own item (see
+            # ItemProcessor.process) without consuming an attempt.
+            log.warning("grace period over, cancelling items", extra={"count": len(pending)})
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
     log.info("worker stopped")

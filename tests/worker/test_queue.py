@@ -4,13 +4,13 @@ import re
 import pytest
 from sqlalchemy import select, update
 
-from session_lens.db.models import BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
+from session_lens.db.models import BatchItem, BatchStatus, ItemStatus, RawRecording, Session, utcnow
 from session_lens.storage.base import RecordingExpired
 from session_lens.worker.queue import (
     BatchNotFound,
     cancel_batch,
     create_batch,
-    delete_raws_for_hash,
+    delete_raws_for_session,
     item_counts,
     read_raw,
     refresh_batch_status,
@@ -80,17 +80,58 @@ async def test_read_raw_gone_object_sets_expired_at(sm, store):
         assert (await db.get(RawRecording, raw.id)).expired_at is not None
 
 
-async def test_delete_raws_for_hash(sm, store):
+async def _session_with_raws(db, store):
+    """A session whose raw is referenced by Session.raw_id and by two items, plus an
+    unrelated raw. Returns (session, [session's raws], other raw)."""
+    older = await store_raw(db, store, recording("s1"))
+    newer = await store_raw(db, store, recording("s1", extra="longer"))
+    other = await store_raw(db, store, recording("other"))
+    session = Session(
+        recording_session="s1",
+        content_hash=newer.content_hash,
+        completeness="clean",
+        metrics={},
+        raw_id=newer.id,
+    )
+    db.add(session)
+    batch = await create_batch(db, store, [("a.jsonl", older), ("b.jsonl", newer)])
+    await db.flush()
+    await db.execute(
+        update(BatchItem).where(BatchItem.batch_id == batch.id).values(session_id=session.id)
+    )
+    await db.commit()
+    return session, [older, newer], other
+
+
+async def test_delete_raws_for_session_before_deleting_the_session(sm, store):
     async with sm() as db:
-        a = await store_raw(db, store, recording("same"))
-        b = await store_raw(db, store, recording("same"))
-        other = await store_raw(db, store, recording("other"))
+        session, raws, other = await _session_with_raws(db, store)
+        assert len(store.objects) == 3
+        assert await delete_raws_for_session(db, store, session.id) == 2
+        await db.delete(session)  # the API deletes the session next, in the same transaction
         await db.commit()
-        assert await delete_raws_for_hash(db, store, a.content_hash) == 2
-        await db.commit()
-        assert [r.id for r in (await db.execute(select(RawRecording))).scalars()] == [other.id]
+        remaining = (await db.execute(select(RawRecording))).scalars().all()
+        assert [r.id for r in remaining] == [other.id]
+        items = (await db.execute(select(BatchItem))).scalars().all()
+        assert all(i.raw_id is None and i.session_id is None for i in items)  # SET NULL
     assert list(store.objects) == [other.object_key]
-    assert b.object_key not in store.objects
+
+
+async def test_delete_raws_for_session_survives_object_delete_failure(sm, store):
+    async with sm() as db:
+        session, raws, _ = await _session_with_raws(db, store)
+
+        async def boom(key):
+            raise OSError("down")
+
+        store.delete = boom
+        assert await delete_raws_for_session(db, store, session.id) == 2  # rows still go
+        await db.commit()
+
+
+async def test_delete_raws_for_session_without_raws(sm, store):
+    async with sm() as db:
+        assert await delete_raws_for_session(db, store, 12345) == 0
 
 
 async def test_create_batch_queues_one_item_per_file(sm, store):
