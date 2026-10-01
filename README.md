@@ -134,6 +134,11 @@ a filterable session list, a session page (metrics, enrichment, risky actions, f
 event view), trends over time, and agent and model comparisons. It has no private endpoints, so
 anything the UI can do a script can do.
 
+The look is Flockdeck's colour system (`web/css/flockdeck-color.css`, copied from Flockdeck's
+`design/color.css`): one deepened-cyan accent, neutral surfaces, and status colour only for states the
+app knows. As in Flockdeck, running is the accent (never green), and every status carries a glyph and
+a word as well as a colour. Tests keep it that way (`tests/web/test_design.py`).
+
 ### Architecture
 
 - **Parser** (`recording/`): a tolerant reader for format v1, then `analyze` for the metrics,

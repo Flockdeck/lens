@@ -1,5 +1,6 @@
 import { api } from "../api.js";
 import { fmtNum, fmtPct, sum } from "../lib.js";
+import { GLYPHS } from "../ui.js";
 import { h, clear, skeleton, errorBox, empty, stat } from "../ui.js";
 import { stackedBars, lines } from "../charts.js";
 
@@ -56,12 +57,12 @@ export function render(root) {
       { name: "tool error rate", cls: "line-a", points: rows.map((r) => r.tool_error_rate ?? null) },
       { name: "avg frustration", cls: "line-b", points: rows.map((r) => r.avg_frustration ?? null) },
     ], `Tool error rate and average frustration per ${interval}`, (v) => v.toFixed(2));
-    const legend = (items) => h("ul", { class: "legend" }, items.map(([cls, label]) => h("li", null, h("span", { class: `swatch ${cls}` }), label)));
+    const legend = (items) => h("ul", { class: "legend" }, items.map(([cls, label, glyph]) => h("li", null, h("span", { class: `swatch ${cls}` }), glyph ? h("span", { class: "glyph", "aria-hidden": "true" }, glyph) : null, label)));
 
     return [controls,
       h("div", { class: "cols-2" },
         h("figure", null, h("figcaption", null, `Sessions per ${interval}`), counts,
-          legend(OUTCOMES.map((o) => [`seg-${o}`, o]))),
+          legend(OUTCOMES.map((o) => [`seg-${o}`, o, GLYPHS[o]]))),
         h("figure", null, h("figcaption", null, "Quality signals"), rates,
           legend([["line-a", "Tool error rate"], ["line-b", "Average frustration"]]))),
       h("details", null, h("summary", null, "Data table"),
