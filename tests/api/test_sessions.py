@@ -157,7 +157,7 @@ async def test_events_and_enrich_410_when_raw_gone(
     assert all(i["raw_available"] is False for i in listed)
     assert (await client.get(f"/sessions/{expired.id}/events")).status_code == 410
 
-    # Object removed by the bucket lifecycle rule before cleanup ran: still a 410.
+    # File removed from the store behind the app's back: still a 410.
     lost = await seed(db, store, "s3", raw=make_jsonl(1))
     assert (await client.get(f"/sessions/{lost.id}")).json()["raw_available"] is True
     store.objects.clear()

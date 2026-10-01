@@ -137,7 +137,7 @@ async def test_events_store_outage_is_503(
     row = await seed(db, store, "s1", raw=make_jsonl(1))
 
     async def boom(key: str) -> bytes:
-        raise ConnectionError("s3 down")
+        raise ConnectionError("store down")
 
     store.get = boom  # type: ignore[method-assign]
     assert (await client.get(f"/sessions/{row.id}/events")).status_code == 503
@@ -181,7 +181,7 @@ async def test_enricher_build_failure_is_503_but_404_wins(
     client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
 ) -> None:
     def broken() -> _Enricher:
-        raise RuntimeError("missing ANTHROPIC_API_KEY")
+        raise RuntimeError("enricher not configured")
 
     client.app.dependency_overrides[get_enricher_provider] = lambda: broken  # type: ignore[attr-defined]
     assert (await client.post("/sessions/9999/enrich")).status_code == 404

@@ -1,5 +1,6 @@
 """FastAPI app factory: `uvicorn session_lens.api.app:create_app --factory`."""
 
+import ipaddress
 import logging
 import os
 import time
@@ -27,13 +28,32 @@ from session_lens.api.limits import (
     request_too_large_handler,
 )
 from session_lens.api.logging import setup_logging
-from session_lens.api.routers import batches, health, sessions, stats
+from session_lens.api.routers import batches, config, health, sessions, stats
 from session_lens.config import Settings, get_settings
 
 log = logging.getLogger("session_lens.api")
 
 _HIDDEN_SUFFIXES = (".py", ".pyc")
+# Responses under these prefixes carry recording-derived data: never cache them.
+_NO_STORE_PREFIXES = ("/sessions", "/batches", "/stats", "/config")
 _DEFAULT_TOKEN = "dev-token"  # the Settings default; never acceptable outside local dev
+
+
+def warn_if_not_loopback(host: str) -> bool:
+    """Log a warning when the API is about to listen beyond this machine. Returns True if it
+    did. For `session-lens api --host`: the default should be 127.0.0.1; pass 0.0.0.0
+    explicitly only where something else (e.g. a container network) limits who can connect."""
+    try:
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:
+        logging.getLogger("session_lens.api").warning(
+            "listening on a non-loopback address; recordings are sensitive and must not be "
+            "reachable from other machines",
+            extra={"host": host},
+        )
+    return not loopback
 
 
 def insecure_dev_allowed() -> bool:
@@ -132,6 +152,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"detail": "internal server error", "request_id": request_id}, status_code=500
             )
         response.headers["X-Request-ID"] = request_id
+        if request.url.path.startswith(_NO_STORE_PREFIXES):
+            response.headers["Cache-Control"] = "no-store"
         elapsed = time.perf_counter() - started
         route = getattr(request.scope.get("route"), "path", "unmatched")
         requests_total.labels(request.method, route, str(status_code)).inc()
@@ -151,6 +173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(batches.router, dependencies=auth)
     app.include_router(sessions.router, dependencies=auth)
     app.include_router(stats.router, dependencies=auth)
+    app.include_router(config.router, dependencies=auth)
 
     web_dir = Path(session_lens.web.__file__).parent
     app.mount("/", WebFiles(directory=web_dir, html=True), name="web")

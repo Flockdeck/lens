@@ -92,9 +92,9 @@ async def submit_batch(
                 rejected.append(RejectedFile(filename=name, reason="request size limit exceeded"))
                 continue
             # One file in memory at a time: put it in the store, then drop the bytes. If a later
-            # step fails (or the transaction rolls back) after some puts, those objects are left
-            # orphaned in the bucket; the bucket lifecycle rule expires them, and no raw_recordings
-            # row points at them because the rows roll back with the transaction.
+            # step fails (or the transaction rolls back) after some puts, those files stay in the
+            # store unreferenced: the rows roll back with the transaction, so no raw_recordings
+            # row points at them.
             try:
                 raw = await queue.store_raw(db, store, outcome)
             except SQLAlchemyError:
