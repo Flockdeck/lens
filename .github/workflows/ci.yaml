@@ -29,24 +29,33 @@ jobs:
       S3_SECRET_KEY: minioadmin
     steps:
       - uses: actions/checkout@v4
-      # Service containers cannot pass `server /data`, so MinIO is started by hand.
-      - name: Start MinIO and create bucket
+      # Same object store as docker-compose (SeaweedFS), so CI matches local runs. Service
+      # containers cannot pass `server ...` arguments, so it is started by hand.
+      - name: Start SeaweedFS and create bucket
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_DEFAULT_REGION: us-east-1
         run: |
-          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin             -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio server /data
+          cat > "$RUNNER_TEMP/s3.json" <<'JSON'
+          {"identities":[{"name":"session-lens","credentials":[{"accessKey":"minioadmin","secretKey":"minioadmin"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+          JSON
+          docker run -d --name s3 -p 9000:8333             -v "$RUNNER_TEMP/s3.json:/etc/seaweedfs/s3.json:ro"             chrislusf/seaweedfs:latest             server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip.bind=0.0.0.0
           ready=0
           for i in $(seq 1 30); do
-            if curl -fs http://127.0.0.1:9000/minio/health/ready; then
+            if aws --endpoint-url http://127.0.0.1:9000 s3api list-buckets >/dev/null 2>&1; then
               ready=1
               break
             fi
             sleep 2
           done
           if [ "$ready" != 1 ]; then
-            echo "MinIO did not become ready" >&2
-            docker logs minio >&2
+            echo "SeaweedFS did not become ready" >&2
+            docker logs s3 >&2
             exit 1
           fi
-          docker run --rm --network host --entrypoint /bin/sh minio/mc -c             "mc alias set local http://127.0.0.1:9000 minioadmin minioadmin              && mc mb --ignore-existing local/session-lens"
+          aws --endpoint-url http://127.0.0.1:9000 s3api create-bucket --bucket session-lens
+          aws --endpoint-url http://127.0.0.1:9000 s3api put-bucket-lifecycle-configuration             --bucket session-lens             --lifecycle-configuration '{"Rules":[{"ID":"expire-recordings","Status":"Enabled","Filter":{"Prefix":"recordings/"},"Expiration":{"Days":30}}]}'
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

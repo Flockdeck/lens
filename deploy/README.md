@@ -47,4 +47,6 @@ Manifests live in `deploy/k8s-infra/session-lens/` and are applied by Flux. One 
   no body-size annotation, so only the client/server timeouts are raised.
 - Egress to `api.anthropic.com` and the Spaces endpoint is allowed as TCP 443 to public
   addresses, since a NetworkPolicy cannot match hostnames.
+- Locally and in CI the bucket is a SeaweedFS container (`s3` in docker-compose, with the
+  same 30-day lifecycle rule on `recordings/`); in the cluster it is Spaces.
 - Prometheus is not in the cluster; `/metrics` is exposed by the API for when it is.

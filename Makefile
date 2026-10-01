@@ -10,8 +10,8 @@ install:
 	uv sync
 
 db:
-	docker compose up -d --wait mysql minio
-	docker compose run --rm minio-init
+	docker compose up -d --wait mysql s3
+	docker compose run --rm s3-init
 
 db-down:
 	docker compose down
