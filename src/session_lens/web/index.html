@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>session-lens</title>
+  <script src="js/theme.js"></script>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="#/submit">session-lens</a>
+    <nav id="nav" aria-label="Main">
+      <a href="#/submit">Submit</a>
+      <a href="#/sessions">Sessions</a>
+      <a href="#/insights">Insights</a>
+    </nav>
+    <div class="topbar-end">
+      <button id="theme" type="button" class="btn btn-quiet">Theme</button>
+      <button id="signout" type="button" class="btn btn-quiet">Change token</button>
+    </div>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <noscript><p class="noscript">session-lens needs JavaScript.</p></noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
