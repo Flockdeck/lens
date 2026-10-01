@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.db.models import (
@@ -26,6 +26,7 @@ from session_lens.db.models import (
     ItemStatus,
     RawRecording,
 )
+from session_lens.db.models import Session as SessionRow
 
 
 def importable(name: str) -> bool:
@@ -137,21 +138,23 @@ class FakeQueue:
             await session.flush()
             raise
 
-    async def delete_raws_for_hash(
-        self, session: AsyncSession, store: Any, content_hash: str
+    async def delete_raws_for_session(
+        self, session: AsyncSession, store: Any, session_id: int
     ) -> int:
+        linked = (
+            select(SessionRow.raw_id)
+            .where(SessionRow.id == session_id)
+            .union(select(BatchItem.raw_id).where(BatchItem.session_id == session_id))
+        )
         rows = (
-            (
-                await session.execute(
-                    select(RawRecording).where(RawRecording.content_hash == content_hash)
-                )
-            )
+            (await session.execute(select(RawRecording).where(RawRecording.id.in_(linked))))
             .scalars()
             .all()
         )
         for raw in rows:
             await store.delete(raw.object_key)
-        await session.execute(delete(RawRecording).where(RawRecording.content_hash == content_hash))
+            await session.delete(raw)
+        await session.flush()
         return len(rows)
 
     async def upsert_enrichment(self, session: AsyncSession, session_id: int, result: Any) -> None:

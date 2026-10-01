@@ -316,11 +316,12 @@ async def delete_session(
     store_provider: Annotated[StoreProvider, Depends(get_store_provider)],
 ) -> Response:
     row, _ = await _get_row(db, session_id)
-    content_hash = row.content_hash
     store = provide_or_503(store_provider, "object store")
+    # Raw rows are found through the session (Session.raw_id, batch_items.session_id), so remove
+    # them before the session row.
+    await queue.delete_raws_for_session(db, store, session_id)
     await db.execute(delete(Enrichment).where(Enrichment.session_id == session_id))
     await db.execute(delete(SessionRow).where(SessionRow.id == session_id))
-    await queue.delete_raws_for_hash(db, store, content_hash)
     await db.commit()
     log.info("session deleted", extra={"session_id": session_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)

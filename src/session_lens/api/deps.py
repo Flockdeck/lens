@@ -62,8 +62,8 @@ class QueueApi(Protocol):
 
     async def cancel_batch(self, session: AsyncSession, batch_id: int) -> object: ...
 
-    async def delete_raws_for_hash(
-        self, session: AsyncSession, store: "RecordingStore", content_hash: str
+    async def delete_raws_for_session(
+        self, session: AsyncSession, store: "RecordingStore", session_id: int
     ) -> int: ...
 
     async def upsert_enrichment(
@@ -103,12 +103,12 @@ class _WorkerQueue:
 
         return await queue.cancel_batch(session, batch_id)
 
-    async def delete_raws_for_hash(
-        self, session: AsyncSession, store: "RecordingStore", content_hash: str
+    async def delete_raws_for_session(
+        self, session: AsyncSession, store: "RecordingStore", session_id: int
     ) -> int:
         from session_lens.worker import queue
 
-        count: int = await queue.delete_raws_for_hash(session, store, content_hash)
+        count: int = await queue.delete_raws_for_session(session, store, session_id)
         return count
 
     async def upsert_enrichment(
