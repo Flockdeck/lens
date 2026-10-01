@@ -12,7 +12,9 @@ Manifests live in `deploy/k8s-infra/session-lens/` and are applied by Flux. One 
 ## What terrawost must provision
 
 1. **Namespace** `session-lens`.
-2. **MySQL 8** database `session_lens` and a user with full rights on it. The NetworkPolicy
+2. **MySQL 8** database `session_lens` and a user with DDL rights
+   (CREATE, ALTER, INDEX, DROP) plus normal DML on that database, since the api init
+   container runs Alembic migrations. The NetworkPolicy
    allows ports 25060 (managed) and 3306.
 3. **Secret `session-lens-secret`** in the namespace with keys:
    - `databaseUrl`: `mysql+asyncmy://USER:PASSWORD@HOST:25060/session_lens?charset=utf8mb4`
@@ -28,12 +30,18 @@ Manifests live in `deploy/k8s-infra/session-lens/` and are applied by Flux. One 
    this bucket only and put it in the secret. No MySQL `max_allowed_packet` change is needed.
 5. **DNS** `session-lens.jmwri.dev` pointing at the HAProxy ingress.
 6. **Flux** wiring for the `session-lens` directory, including `registry.yaml`
-   (ImageRepository/ImagePolicy in `flux-system`) and image-update automation, as for vael.
+   (ImageRepository/ImagePolicy in `flux-system`) and image-update automation, as for vael: it is the shared
+   `flux-system` object and is not defined here.
 7. Assumed to exist already: HAProxy ingress in namespace `haproxy-ingress`, cert-manager
    with ClusterIssuer `letsencrypt-prod`, CoreDNS (`k8s-app: kube-dns`).
 8. A public GHCR package (or an imagePullSecret) for `ghcr.io/jmwri/session-lens`.
 
 ## Notes
+
+- The api Deployment is pinned to one replica with `Recreate`, because it runs migrations
+  from an init container (MySQL DDL is not transactional and Alembic takes no lock). The worker
+  waits for the schema in its own init container.
+- The first release tag needs a committed `uv.lock`; the Dockerfile uses `uv sync --frozen`.
 
 - The API enforces the ~256 MiB request limit (`MAX_REQUEST_BYTES`); the HAProxy ingress has
   no body-size annotation, so only the client/server timeouts are raised.

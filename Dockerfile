@@ -5,15 +5,15 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 
 # Dependencies first so this layer is cached until the lockfile changes.
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-install-project $(test -f uv.lock && echo --frozen)
+    uv sync --no-dev --frozen --no-install-project
 
 COPY README.md alembic.ini ./
 COPY alembic ./alembic
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-editable $(test -f uv.lock && echo --frozen)
+    uv sync --no-dev --frozen --no-editable
 
 FROM python:3.12-slim
 RUN groupadd --system --gid 65532 app \

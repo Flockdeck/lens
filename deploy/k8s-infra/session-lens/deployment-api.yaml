@@ -7,7 +7,13 @@ metadata:
     app: session-lens
     component: api
 spec:
+  # Exactly one replica, and Recreate: this Deployment's init container runs Alembic.
+  # MySQL DDL is not transactional and Alembic takes no lock, so two concurrent
+  # migrations (more replicas, or old and new pods overlapping in a rolling update)
+  # could corrupt the schema. Raise replicas only after migrations take a GET_LOCK.
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: session-lens
@@ -27,8 +33,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        # Schema migrations run here, before the API starts. Concurrent runs are
-        # serialised by Alembic's version table, so extra replicas are safe.
+        # Schema migrations run here, before the API starts (single replica only, see above).
         - name: migrate
           image: "ghcr.io/jmwri/session-lens:0.0.1" # {"$imagepolicy": "flux-system:session-lens"}
           imagePullPolicy: IfNotPresent

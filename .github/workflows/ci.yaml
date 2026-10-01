@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   test:
@@ -33,12 +32,21 @@ jobs:
       # Service containers cannot pass `server /data`, so MinIO is started by hand.
       - name: Start MinIO and create bucket
         run: |
-          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio server /data
+          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin             -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio server /data
+          ready=0
           for i in $(seq 1 30); do
-            curl -fs http://127.0.0.1:9000/minio/health/ready && break
+            if curl -fs http://127.0.0.1:9000/minio/health/ready; then
+              ready=1
+              break
+            fi
             sleep 2
           done
-          docker run --rm --network host --entrypoint /bin/sh minio/mc -c             "mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb --ignore-existing local/session-lens"
+          if [ "$ready" != 1 ]; then
+            echo "MinIO did not become ready" >&2
+            docker logs minio >&2
+            exit 1
+          fi
+          docker run --rm --network host --entrypoint /bin/sh minio/mc -c             "mc alias set local http://127.0.0.1:9000 minioadmin minioadmin              && mc mb --ignore-existing local/session-lens"
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -57,6 +65,9 @@ jobs:
     # Only tagged releases (v0.1.0) are published. Flux's ImagePolicy picks the
     # highest semver tag, so the image is tagged 0.1.0, with no "v".
     needs: test
+    permissions:
+      contents: read
+      packages: write
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

@@ -11,9 +11,10 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # Batch uploads are multipart bodies of up to ~256 MiB (the API's
     # MAX_REQUEST_BYTES). HAProxy has no body-size cap of its own, so the API
-    # enforces the limit; give slow uploads time to finish instead.
-    haproxy.org/client-timeout: "10m"
-    haproxy.org/server-timeout: "10m"
+    # enforces the limit; give slow uploads time to finish instead (256 MiB at
+    # 5 Mbit/s is about 7 minutes).
+    haproxy.org/timeout-client: "15m"
+    haproxy.org/timeout-server: "15m"
 spec:
   ingressClassName: haproxy
   rules:

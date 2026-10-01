@@ -27,6 +27,29 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # The api's init container owns migrations. Block until the schema is at head so a
+        # worker never runs against the old schema during a rollout. Needs
+        # `session-lens migrate --check` (exit non-zero until head); retried until it passes.
+        - name: wait-for-schema
+          image: "ghcr.io/jmwri/session-lens:0.0.1" # {"$imagepolicy": "flux-system:session-lens"}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - until session-lens migrate --check; do echo "waiting for schema"; sleep 5; done
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: databaseUrl}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: worker
           image: "ghcr.io/jmwri/session-lens:0.0.1" # {"$imagepolicy": "flux-system:session-lens"}
@@ -53,9 +76,6 @@ spec:
                 secretKeyRef: {name: session-lens-secret, key: s3SecretKey}
             - name: RAW_RETENTION_DAYS
               value: "30"
-            - name: API_TOKEN
-              valueFrom:
-                secretKeyRef: {name: session-lens-secret, key: apiToken}
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef: {name: session-lens-secret, key: anthropicApiKey}

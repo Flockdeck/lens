@@ -1,4 +1,4 @@
-# `docker compose up -d --wait mysql minio` plus `docker compose run --rm minio-init` is enough
+# `docker compose up -d --wait mysql minio` then `docker compose run --rm minio-init` is enough
 # for development and tests.
 # `docker compose up --build` also runs the api and worker from the Dockerfile.
 services:
@@ -25,22 +25,19 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     ports: ["9000:9000", "9001:9001"]
     volumes: [minio-data:/data]
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
+    # No healthcheck: the image's tooling is not guaranteed (no curl, and `mc` has no alias
+    # inside it), so minio-init waits for the server itself.
 
   # Creates the bucket and the same lifecycle rule terrawost sets on Spaces
   # (expire recordings/ after RAW_RETENTION_DAYS).
   minio-init:
     image: minio/mc
     depends_on:
-      minio: {condition: service_healthy}
+      minio: {condition: service_started}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done &&
         mc mb --ignore-existing local/session-lens &&
         mc ilm rule add --prefix recordings/ --expire-days $${RAW_RETENTION_DAYS:-30} local/session-lens
     restart: "no"

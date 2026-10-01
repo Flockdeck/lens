@@ -1,5 +1,6 @@
-# Deletes raw recordings older than RAW_RETENTION_DAYS (default 30); metrics and
-# enrichments are kept.
+# Database-only reconciliation: marks rows whose raw recording is older than
+# RAW_RETENTION_DAYS as expired and prunes old finished batches. It never touches
+# the bucket (a lifecycle rule expires the objects), so it gets no S3 credentials.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -40,21 +41,6 @@ spec:
                 - name: DATABASE_URL
                   valueFrom:
                     secretKeyRef: {name: session-lens-secret, key: databaseUrl}
-                - name: S3_ENDPOINT_URL
-                  valueFrom:
-                    secretKeyRef: {name: session-lens-secret, key: s3EndpointUrl}
-                - name: S3_REGION
-                  valueFrom:
-                    secretKeyRef: {name: session-lens-secret, key: s3Region}
-                - name: S3_BUCKET
-                  valueFrom:
-                    secretKeyRef: {name: session-lens-secret, key: s3Bucket}
-                - name: S3_ACCESS_KEY
-                  valueFrom:
-                    secretKeyRef: {name: session-lens-secret, key: s3AccessKey}
-                - name: S3_SECRET_KEY
-                  valueFrom:
-                    secretKeyRef: {name: session-lens-secret, key: s3SecretKey}
                 - name: RAW_RETENTION_DAYS
                   value: "30"
               resources:
