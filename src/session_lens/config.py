@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # mysql+asyncmy://user:password@host:3306/dbname?charset=utf8mb4
-    database_url: str = "mysql+asyncmy://session_lens:session_lens@127.0.0.1:3306/session_lens?charset=utf8mb4"
+    database_url: str = (
+        "mysql+asyncmy://session_lens:session_lens@127.0.0.1:3306/session_lens?charset=utf8mb4"
+    )
     api_token: str = "dev-token"
 
     enricher: Literal["mock", "anthropic"] = "mock"

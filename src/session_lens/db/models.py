@@ -51,7 +51,9 @@ class Batch(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.queued)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-    items: Mapped[list[BatchItem]] = relationship(back_populates="batch", cascade="all, delete-orphan")
+    items: Mapped[list[BatchItem]] = relationship(
+        back_populates="batch", cascade="all, delete-orphan"
+    )
 
 
 class RawRecording(Base):
@@ -64,7 +66,9 @@ class RawRecording(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256 hex of the bytes
     size_bytes: Mapped[int] = mapped_column(Integer)
-    object_key: Mapped[str] = mapped_column(String(255), unique=True)  # recordings/YYYY/MM/<uuid>.jsonl
+    object_key: Mapped[str] = mapped_column(
+        String(255), unique=True
+    )  # recordings/YYYY/MM/<uuid>.jsonl
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
@@ -80,10 +84,16 @@ class BatchItem(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     not_before: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # backoff
     locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # claim time
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)  # never contains recording content
+    error: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # never contains recording content
     error_retryable: Mapped[bool | None] = mapped_column(nullable=True)
-    raw_id: Mapped[int | None] = mapped_column(ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True)
-    session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
+    raw_id: Mapped[int | None] = mapped_column(
+        ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True
+    )
+    session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -97,7 +107,9 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    recording_session: Mapped[str] = mapped_column(String(128), unique=True)  # `session` in the file
+    recording_session: Mapped[str] = mapped_column(
+        String(128), unique=True
+    )  # `session` in the file
     content_hash: Mapped[str] = mapped_column(String(64))
     project: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     agent: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
@@ -109,19 +121,27 @@ class Session(Base):
     completeness: Mapped[str] = mapped_column(String(32))
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON)  # see docs/contracts.md "Metrics"
     risky_actions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    files_touched: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {read, edited, commands}
+    files_touched: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict
+    )  # {read, edited, commands}
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
-    raw_id: Mapped[int | None] = mapped_column(ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True)
+    raw_id: Mapped[int | None] = mapped_column(
+        ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
-    enrichment: Mapped[Enrichment | None] = relationship(back_populates="session", cascade="all, delete-orphan")
+    enrichment: Mapped[Enrichment | None] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
 
 
 class Enrichment(Base):
     __tablename__ = "enrichments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), unique=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), unique=True
+    )
     prompt_version: Mapped[str] = mapped_column(String(32))
     model: Mapped[str] = mapped_column(String(128))  # "mock" for the mock enricher
     summary: Mapped[str] = mapped_column(Text)

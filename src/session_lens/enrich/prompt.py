@@ -112,9 +112,18 @@ def _risky_in_prompt(analysis: Analysis) -> list[Any]:
     return list(analysis.risky_actions[:MAX_LIST_ITEMS])
 
 
+def _digest_seqs(analysis: Analysis) -> set[int]:
+    """Seqs of the digest items that actually make it into the prompt (after bounding)."""
+    d = analysis.digest
+    seqs: set[int] = set()
+    for items in (d.user_prompts, d.final_messages, d.failing_results):
+        seqs.update(i.seq for i in items[:MAX_DIGEST_ITEMS])
+    return seqs
+
+
 def supplied_seqs(analysis: Analysis) -> set[int]:
     """Event seqs the prompt mentions; the model's output may only refer to these."""
-    return {r.seq for r in _risky_in_prompt(analysis)}
+    return {r.seq for r in _risky_in_prompt(analysis)} | _digest_seqs(analysis)
 
 
 def build_user_message(analysis: Analysis) -> str:
@@ -140,6 +149,9 @@ def build_user_message(analysis: Analysis) -> str:
         "read": _cap_strings(ft.read),
         "edited": _cap_strings(ft.edited),
         "commands": _cap_strings(ft.commands),
+        "read_total": ft.read_total,
+        "edited_total": ft.edited_total,
+        "commands_total": ft.commands_total,
     }
     facts["warnings"] = _cap_strings(analysis.warnings)
     digest = _bound_json(analysis.digest.model_dump(mode="json"))

@@ -10,11 +10,11 @@ from types import SimpleNamespace
 from typing import Any
 
 from pydantic import BaseModel
-from session_lens.enrich.base import EnrichmentError
-from session_lens.recording.parser import EmptyRecording, UnsupportedVersion
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from session_lens.db.models import Batch, BatchItem
+from session_lens.enrich.base import EnrichmentError
+from session_lens.recording.parser import EmptyRecording, UnsupportedVersion
 from session_lens.storage.base import RecordingStore
 from session_lens.worker.queue import create_batch
 
