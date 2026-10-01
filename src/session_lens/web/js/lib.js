@@ -101,3 +101,41 @@ export const asList = (x) => (Array.isArray(x) ? x : (x && (x.items || x.events)
 export function sum(obj) {
   return Object.values(obj || {}).reduce((a, b) => a + (Number(b) || 0), 0);
 }
+
+// ---- Runtime config (GET /config) -------------------------------------------------------
+
+/** Human text for how long raw recordings are kept, or null if the value is unusable. */
+export function retentionText(cfg) {
+  const d = cfg && cfg.raw_retention_days;
+  if (!Number.isInteger(d) || d < 0) return null;
+  return d === 0 ? "raw kept until deleted" : `raw kept ${d} day${d === 1 ? "" : "s"}`;
+}
+
+/** True only when both storage and enrichment are known to stay on this machine. */
+export function isLocalOnly(cfg) {
+  return !!cfg && cfg.storage === "filesystem" && (cfg.enricher === "mock" || cfg.enricher === "ollama");
+}
+
+/** The always-visible status text. The words carry the meaning, not a colour. */
+export function statusLine(cfg) {
+  if (!cfg) return "Status unavailable";
+  const enrichment = cfg.enricher === "ollama" ? "local model (ollama)" : cfg.enricher;
+  const parts = [
+    isLocalOnly(cfg) ? "Local only" : "Not verified as local-only",
+    `storage: ${cfg.storage}`,
+    `enrichment: ${enrichment}`,
+  ];
+  const r = retentionText(cfg);
+  if (r) parts.push(r);
+  return parts.join(" · ");
+}
+
+/** Why a session's raw recording is gone, worded from the configured retention. */
+export function expiredText(cfg) {
+  const d = cfg && cfg.raw_retention_days;
+  let first;
+  if (Number.isInteger(d) && d > 0) first = `Raw recording expired after ${d} day${d === 1 ? "" : "s"}.`;
+  else if (d === 0) first = "Raw recording is no longer available (retention is off, so it was deleted by hand or lost).";
+  else first = "Raw recording expired after the retention period.";
+  return `${first} Metrics and enrichment are kept.`;
+}

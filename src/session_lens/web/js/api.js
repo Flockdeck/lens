@@ -83,5 +83,6 @@ export const api = {
   deleteSession: (id) => request("DELETE", `/sessions/${encodeURIComponent(id)}`),
   trends: (query, signal) => request("GET", "/stats/trends", { query, signal }),
   compare: (by, signal) => request("GET", "/stats/compare", { query: { by }, signal }),
+  config: (signal) => request("GET", "/config", { signal }),
   usage: (signal) => request("GET", "/stats/usage", { signal }),
 };

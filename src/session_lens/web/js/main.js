@@ -1,6 +1,15 @@
 import { getToken, setToken } from "./api.js";
 import { parseHash } from "./lib.js";
 import { h, clear } from "./ui.js";
+import { loadConfig, onConfig, resetConfig } from "./config.js";
+import { statusLine, isLocalOnly } from "./lib.js";
+
+const statusText = document.getElementById("status-text");
+const statusBar = document.getElementById("statusbar");
+onConfig((cfg) => {
+  statusText.textContent = statusLine(cfg);
+  statusBar.dataset.state = !cfg ? "unknown" : isLocalOnly(cfg) ? "local" : "unverified";
+});
 
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
@@ -17,6 +26,7 @@ const TITLES = { submit: "Submit", batches: "Batch", sessions: "Sessions", insig
 
 async function route() {
   if (!getToken()) return showTokenPrompt();
+  loadConfig();
   const { parts, query } = parseHash(location.hash);
   let name = parts[0] in ROUTES ? parts[0] : "submit";
   const loader = ROUTES[name];
@@ -52,6 +62,7 @@ function showTokenPrompt(message) {
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     setToken(input.value.trim());
+    resetConfig();
     nav.hidden = false;
     route();
   });
@@ -62,7 +73,7 @@ function showTokenPrompt(message) {
 window.addEventListener("hashchange", route);
 window.addEventListener("auth-required", () => showTokenPrompt("That token was not accepted."));
 
-document.getElementById("signout").addEventListener("click", () => { setToken(""); showTokenPrompt(); });
+document.getElementById("signout").addEventListener("click", () => { setToken(""); resetConfig(); showTokenPrompt(); });
 document.getElementById("theme").addEventListener("click", () => {
   const root = document.documentElement;
   const dark = (root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
