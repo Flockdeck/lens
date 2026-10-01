@@ -1,7 +1,7 @@
 import { api, ApiError } from "../api.js";
 import { getConfig, loadConfig } from "../config.js";
 import { asList, expiredText, fmtBytes, fmtDate, fmtDuration, fmtNum, fmtPct } from "../lib.js";
-import { h, clear, badge, skeleton, errorBox, empty, stat, toast, confirmDialog, withBusy } from "../ui.js";
+import { h, clear, append, badge, skeleton, errorBox, empty, stat, toast, confirmDialog, withBusy } from "../ui.js";
 
 const EVENT_PAGE = 100;
 
@@ -33,7 +33,8 @@ export function render(root, { parts }) {
     current = s;
     const enr = s.enrichment || null;
     const m = s.metrics || {};
-    clear(host).append(
+    // `append` skips null sections; the native Element.append would write the text "null".
+    append(clear(host), [
       header(s, enr),
       enr ? enrichmentSection(enr) : h("section", null, h("h2", null, "Enrichment"), empty("Not enriched yet", "Use Re-enrich to run it now.")),
       metricsSection(m),
@@ -41,7 +42,7 @@ export function render(root, { parts }) {
       stuckSection(enr),
       filesSection(s.files_touched),
       warningsSection(s.warnings, s.completeness),
-      eventsSection(s));
+      eventsSection(s)]);
   }
 
   function header(s, enr) {

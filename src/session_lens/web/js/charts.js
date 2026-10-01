@@ -49,8 +49,9 @@ function xLabels(root, buckets, xAt) {
 /** Stacked bars: rows = [{bucket, values: {key: n}}]. */
 export function stackedBars(rows, keys, label) {
   const totals = rows.map((r) => keys.reduce((a, k) => a + (r.values[k] || 0), 0));
-  const max = niceMax(Math.max(0, ...totals));
-  const root = frame(label, max, (v) => fmtNum(Math.round(v)));
+  // Counts: a multiple of 4 so the four grid steps are whole numbers (no repeated labels).
+  const max = Math.max(4, Math.ceil(Math.max(0, ...totals) / 4) * 4);
+  const root = frame(label, max, (v) => (Number.isInteger(v) ? fmtNum(v) : ""));
   const plotW = W - M.l - M.r;
   const plotH = H - M.t - M.b;
   const slot = plotW / Math.max(rows.length, 1);
