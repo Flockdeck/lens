@@ -1,3 +1,7 @@
+> **Superseded.** This was the first build plan. The project later became completely local
+> (no cloud deployment, no remote LLM, local filesystem store, app-enforced retention); the
+> README describes what exists, and `docs/contracts.md` the component interfaces.
+
 # session-lens: feature set and build plan
 
 ## Context

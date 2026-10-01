@@ -31,8 +31,22 @@ RECORDER_TYPES = frozenset({"recording_started", "recording_stopped", "recording
 _EXTRA_FRACTION = re.compile(r"(\.\d{6})\d+")
 
 _LOOSE_STR_FIELDS = (
-    "pane_name", "project", "agent", "model", "conversation", "subagent", "text", "source",
-    "reason", "tool", "tool_use_id", "output", "outcome", "status", "previous", "detail",
+    "pane_name",
+    "project",
+    "agent",
+    "model",
+    "conversation",
+    "subagent",
+    "text",
+    "source",
+    "reason",
+    "tool",
+    "tool_use_id",
+    "output",
+    "outcome",
+    "status",
+    "previous",
+    "detail",
 )
 _LOOSE_BOOL_FIELDS = ("redacted", "is_error", "interrupted", "inferred")
 

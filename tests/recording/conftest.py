@@ -16,8 +16,13 @@ def fixture() -> Callable[[str], bytes]:
 
 def make_line(seq: int, type_: str, time: str = "10:00:00", **fields: Any) -> dict[str, Any]:
     return {
-        "v": 1, "seq": seq, "time": f"2026-10-01T{time}Z", "session": "s", "pane": "p",
-        "type": type_, **fields,
+        "v": 1,
+        "seq": seq,
+        "time": f"2026-10-01T{time}Z",
+        "session": "s",
+        "pane": "p",
+        "type": type_,
+        **fields,
     }
 
 

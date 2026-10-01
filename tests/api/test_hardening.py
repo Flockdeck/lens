@@ -163,7 +163,7 @@ async def test_readyz_times_out_on_hung_store(
 ) -> None:
     from session_lens.api.routers import health
 
-    monkeypatch.setattr(health, "READY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(health, "READY_TIMEOUT_SECONDS", 0.5)
 
     async def hang() -> None:
         await asyncio.sleep(5)

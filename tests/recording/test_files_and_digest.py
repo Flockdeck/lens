@@ -37,7 +37,9 @@ def test_digest_holds_prompts_final_message_and_failures(fixture: Fx) -> None:
     assert d.user_prompts[0].text == "run the tests and fix what fails"
     assert [m.text for m in d.final_messages] == ["All 212 tests pass."]  # subagent's is excluded
     assert [(f.tool, f.interrupted) for f in d.failing_results] == [
-        ("Bash", False), ("Read", False), ("Bash", True),
+        ("Bash", False),
+        ("Read", False),
+        ("Bash", True),
     ]
     assert (d.project, d.agent, d.model, d.completeness) == ("shop", "claude", "opus", "clean")
     assert d.metrics.tool_calls == 9
@@ -47,8 +49,9 @@ def test_digest_holds_prompts_final_message_and_failures(fixture: Fx) -> None:
 
 def test_digest_flags_clipped_and_redacted_messages() -> None:
     data = to_bytes(
-        make_line(1, "user_prompt", text="long…[clipped 99 bytes]", clipped={"text": 200},
-                  redacted=True),
+        make_line(
+            1, "user_prompt", text="long…[clipped 99 bytes]", clipped={"text": 200}, redacted=True
+        ),
     )
     m = analyze(parse(data)).digest.user_prompts[0]
     assert m.clipped and m.redacted

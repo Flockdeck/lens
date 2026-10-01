@@ -183,8 +183,13 @@ def test_permission_matching_is_fast_on_a_pathological_file() -> None:
     ]
     # answered in reverse, so a front-first scan of the pending list would be quadratic
     lines += [
-        make_line(n + 1 + j, "permission_outcome", tool="Bash", toolUseId=f"t{n - 1 - j}",
-                  outcome="allowed")
+        make_line(
+            n + 1 + j,
+            "permission_outcome",
+            tool="Bash",
+            toolUseId=f"t{n - 1 - j}",
+            outcome="allowed",
+        )
         for j in range(n)
     ]
     # and a pile of outcomes that match nothing
@@ -204,8 +209,9 @@ def test_permission_matching_is_fast_on_a_pathological_file() -> None:
 
 def test_totals_are_counted_before_the_cap_and_latest_commands_are_kept() -> None:
     n = MAX_ITEMS + 100
-    lines = [make_line(i + 1, "tool_call", tool="Bash", input={"command": f"echo {i}"})
-             for i in range(n)]
+    lines = [
+        make_line(i + 1, "tool_call", tool="Bash", input={"command": f"echo {i}"}) for i in range(n)
+    ]
     lines += [
         make_line(n + i + 1, "tool_call", tool="Read", input={"file_path": f"f{i}"})
         for i in range(n)

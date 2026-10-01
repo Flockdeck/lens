@@ -72,15 +72,40 @@ def make_sessions(n: int = 60) -> dict[str, dict[str, Any]]:
                 "tool_errors": errors,
                 "tool_interrupted": i % 3,
                 "unpaired_calls": i % 2,
-                "permission": {"prompts": 6, "allowed": 4, "denied": i % 3, "auto_approved": 1, "abandoned": 0},
-                "status_seconds": {"working": duration * 0.6, "waiting": duration * 0.25, "idle": duration * 0.15},
+                "permission": {
+                    "prompts": 6,
+                    "allowed": 4,
+                    "denied": i % 3,
+                    "auto_approved": 1,
+                    "abandoned": 0,
+                },
+                "status_seconds": {
+                    "working": duration * 0.6,
+                    "waiting": duration * 0.25,
+                    "idle": duration * 0.15,
+                },
                 "redacted_lines": i % 4,
                 "clipped_lines": i % 2,
             },
             "risky_actions": (
-                [{"seq": 12, "tool": "Bash", "summary": "rm -rf build/", "severity": "medium", "rule": "rm-recursive"},
-                 {"seq": 40, "tool": "Bash", "summary": "git push --force origin main", "severity": "high", "rule": "force-push"}]
-                if i % 4 == 0 else []
+                [
+                    {
+                        "seq": 12,
+                        "tool": "Bash",
+                        "summary": "rm -rf build/",
+                        "severity": "medium",
+                        "rule": "rm-recursive",
+                    },
+                    {
+                        "seq": 40,
+                        "tool": "Bash",
+                        "summary": "git push --force origin main",
+                        "severity": "high",
+                        "rule": "force-push",
+                    },
+                ]
+                if i % 4 == 0
+                else []
             ),
             "files_touched": {
                 "read": ["src/app.py", "README.md"],
@@ -93,9 +118,13 @@ def make_sessions(n: int = 60) -> dict[str, dict[str, Any]]:
                 "category": CATEGORIES[i % len(CATEGORIES)],
                 "outcome": outcome,
                 "frustration": round(((i * 37) % 100) / 100, 2),
-                "stuck_points": [{"description": "Flaky test kept failing", "approx_seq": 33}] if outcome == "stuck" else [],
+                "stuck_points": [{"description": "Flaky test kept failing", "approx_seq": 33}]
+                if outcome == "stuck"
+                else [],
                 "prompt_feedback": "Name the failing test up front." if i % 2 else None,
-                "risk_notes": [{"seq": 40, "explanation": "Force push to a shared branch."}] if i % 4 == 0 else [],
+                "risk_notes": [{"seq": 40, "explanation": "Force push to a shared branch."}]
+                if i % 4 == 0
+                else [],
                 "input_tokens": 1800 + i * 11,
                 "output_tokens": 300 + i * 3,
                 "model": "mock",
@@ -111,8 +140,14 @@ def make_events(count: int = 350) -> list[dict[str, Any]]:
     evs = []
     for seq in range(1, count + 1):
         typ = types[seq % len(types)]
-        ev: dict[str, Any] = {"v": 1, "seq": seq, "time": (t0 + timedelta(seconds=seq * 4)).isoformat(),
-                              "session": "rec", "pane": "pane-0", "type": typ}
+        ev: dict[str, Any] = {
+            "v": 1,
+            "seq": seq,
+            "time": (t0 + timedelta(seconds=seq * 4)).isoformat(),
+            "session": "rec",
+            "pane": "pane-0",
+            "type": typ,
+        }
         if typ == "tool_call":
             ev.update(tool="Bash", input={"command": "pytest -q"})
         elif typ == "tool_result":
@@ -133,14 +168,19 @@ class State:
         self.batches: dict[str, dict[str, Any]] = {}
         self.enrich_calls: list[str] = []
         self.config: dict[str, Any] = {
-            "storage": "filesystem", "enricher": "mock", "raw_retention_days": 30,
-            "cleanup_interval_seconds": 86400, "version": "0.0.0-fake",
+            "storage": "filesystem",
+            "enricher": "mock",
+            "raw_retention_days": 30,
+            "cleanup_interval_seconds": 86400,
+            "version": "0.0.0-fake",
         }
         self.config_fails = False
 
 
 def parse_multipart(content_type: str, body: bytes) -> list[tuple[str, str, bytes]]:
-    msg = BytesParser(policy=HTTP).parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body)
+    msg = BytesParser(policy=HTTP).parsebytes(
+        b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body
+    )
     parts = []
     for part in msg.iter_parts():
         name = part.get_param("name", header="content-disposition")
@@ -194,7 +234,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         data = target.read_bytes()
         self.send_response(200)
-        self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+        self.send_header(
+            "Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        )
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -226,7 +268,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, self.list_sessions(q))
             if parts[0] == "sessions" and len(parts) == 2:
                 s = st.sessions.get(parts[1])
-                return self.send_json(200, s) if s else self.send_json(404, {"detail": "Session not found"})
+                return (
+                    self.send_json(200, s)
+                    if s
+                    else self.send_json(404, {"detail": "Session not found"})
+                )
             if parts[0] == "sessions" and len(parts) == 3 and parts[2] == "events":
                 if parts[1] not in st.sessions:
                     return self.send_json(404, {"detail": "Session not found"})
@@ -236,16 +282,23 @@ class Handler(BaseHTTPRequestHandler):
                 rest = [e for e in st.events if e["seq"] > after]
                 page = rest[:limit]
                 more = len(rest) > limit
-                return self.send_json(200, {"items": page, "next_after_seq": page[-1]["seq"] if more else None})
+                return self.send_json(
+                    200, {"items": page, "next_after_seq": page[-1]["seq"] if more else None}
+                )
             if parts == ["stats", "trends"]:
                 return self.send_json(200, self.trends(q))
             if parts == ["stats", "compare"]:
                 return self.send_json(200, self.compare(q.get("by", "agent")))
             if parts == ["stats", "usage"]:
                 enr = [s["enrichment"] for s in st.sessions.values()]
-                return self.send_json(200, {"input_tokens": sum(e["input_tokens"] for e in enr),
-                                            "output_tokens": sum(e["output_tokens"] for e in enr),
-                                            "enrichments": len(enr)})
+                return self.send_json(
+                    200,
+                    {
+                        "input_tokens": sum(e["input_tokens"] for e in enr),
+                        "output_tokens": sum(e["output_tokens"] for e in enr),
+                        "enrichments": len(enr),
+                    },
+                )
         self.send_json(404, {"detail": "Not Found"})
 
     def do_POST(self) -> None:
@@ -307,8 +360,16 @@ class Handler(BaseHTTPRequestHandler):
                 rejected.append({"filename": filename, "reason": "too large"})
             else:
                 accepted.append(filename)
-                items.append({"id": uuid.uuid4().hex[:8], "filename": filename, "status": "queued",
-                              "attempts": 0, "error": None, "session_id": None})
+                items.append(
+                    {
+                        "id": uuid.uuid4().hex[:8],
+                        "filename": filename,
+                        "status": "queued",
+                        "attempts": 0,
+                        "error": None,
+                        "session_id": None,
+                    }
+                )
         if not accepted:
             return self.send_json(422, {"detail": "No acceptable files", "rejected": rejected})
         bid = uuid.uuid4().hex[:12]
@@ -328,9 +389,27 @@ class Handler(BaseHTTPRequestHandler):
             rows = [r for r in rows if r["started_at"][:10] <= q["to"][:10]]
         rows.sort(key=lambda r: r["started_at"], reverse=True)
         limit, offset = int(q.get("limit", 50)), int(q.get("offset", 0))
-        keys = ("id", "raw_available", "recording_session", "project", "agent", "model", "pane", "started_at", "ended_at",
-                "completeness", "category", "outcome", "frustration", "summary", "duration_seconds")
-        return {"total": len(rows), "items": [{k: r[k] for k in keys} for r in rows[offset:offset + limit]]}
+        keys = (
+            "id",
+            "raw_available",
+            "recording_session",
+            "project",
+            "agent",
+            "model",
+            "pane",
+            "started_at",
+            "ended_at",
+            "completeness",
+            "category",
+            "outcome",
+            "frustration",
+            "summary",
+            "duration_seconds",
+        )
+        return {
+            "total": len(rows),
+            "items": [{k: r[k] for k in keys} for r in rows[offset : offset + limit]],
+        }
 
     def trends(self, q: dict[str, str]) -> list[dict[str, Any]]:
         step = 7 if q.get("interval") == "week" else 1
@@ -367,7 +446,9 @@ def aggregate(_: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "outcomes": {o: sum(1 for r in rows if r["outcome"] == o) for o in OUTCOMES},
         "avg_frustration": round(sum(r["frustration"] for r in rows) / n, 3),
         "tool_error_rate": round(sum(r["metrics"]["tool_errors"] for r in rows) / calls, 4),
-        "permission_denial_rate": round(sum(r["metrics"]["permission"]["denied"] for r in rows) / prompts, 4),
+        "permission_denial_rate": round(
+            sum(r["metrics"]["permission"]["denied"] for r in rows) / prompts, 4
+        ),
     }
 
 
@@ -393,7 +474,9 @@ def main() -> None:
     ap.add_argument("--no-config", action="store_true", help="make GET /config fail")
     args = ap.parse_args()
     srv = FakeServer(args.port, args.token)
-    srv.state.config.update(raw_retention_days=args.retention_days, enricher=args.enricher, storage=args.storage)
+    srv.state.config.update(
+        raw_retention_days=args.retention_days, enricher=args.enricher, storage=args.storage
+    )
     srv.state.config_fails = args.no_config
     print(f"fake session-lens API + UI on {srv.url} (token: {args.token})")
     srv.serve_forever()

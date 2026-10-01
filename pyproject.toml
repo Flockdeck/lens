@@ -44,6 +44,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["docs", "*.md"]  # contract snippets are prose, not code to reformat
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -53,3 +54,8 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
+
+# The S3 store is an optional extra (`uv sync --extra s3`); type-check the same way with or without it.
+[[tool.mypy.overrides]]
+module = ["aioboto3", "aioboto3.*", "aiobotocore.*", "botocore", "botocore.*"]
+ignore_missing_imports = true

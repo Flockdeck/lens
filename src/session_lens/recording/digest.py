@@ -54,9 +54,7 @@ def build_digest(
 
     finals = [e for e in events if e.type == "assistant_message" and not e.subagent]
 
-    failing = [
-        e for e in events if e.type == "tool_result" and (e.is_error or e.interrupted)
-    ]
+    failing = [e for e in events if e.type == "tool_result" and (e.is_error or e.interrupted)]
     # the latest failures are the ones closest to how the session ended
     shown_failures = failing[-MAX_FAILURES:]
 

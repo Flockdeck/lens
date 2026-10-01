@@ -31,8 +31,9 @@ def test_prompt_without_outcome_counts_as_abandoned(fixture: Fx) -> None:
 def test_reported_abandoned_outcome_is_not_double_counted() -> None:
     data = to_bytes(
         make_line(1, "permission_prompt", tool="Bash", toolUseId="a"),
-        make_line(2, "permission_outcome", tool="Bash", toolUseId="a", outcome="abandoned",
-                  inferred=True),
+        make_line(
+            2, "permission_outcome", tool="Bash", toolUseId="a", outcome="abandoned", inferred=True
+        ),
         make_line(3, "permission_prompt", tool="Bash", toolUseId="b"),
         make_line(4, "permission_outcome", tool="Bash", toolUseId="b", outcome="denied"),
     )

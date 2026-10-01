@@ -33,9 +33,9 @@ class S3Store:
         read_timeout: float = 30.0,
     ) -> None:
         try:
-            import aioboto3  # type: ignore[import-untyped]
-            from botocore.config import Config  # type: ignore[import-untyped]
-            from botocore.exceptions import ClientError  # type: ignore[import-untyped]
+            import aioboto3
+            from botocore.config import Config
+            from botocore.exceptions import ClientError
         except ImportError as exc:
             raise RuntimeError("the s3 store needs aioboto3: install session-lens[s3]") from exc
         self._client_error: type[Exception] = ClientError

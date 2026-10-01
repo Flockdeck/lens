@@ -62,9 +62,7 @@ def secret_file_severity(name: str, *, pathlike: bool = True) -> Severity | None
         if low.endswith(_KEY_SUFFIXES) or "credential" in low:
             return "high"
     elif (
-        low in _SSH_KEY_NAMES
-        or low.endswith(_KEY_SUFFIXES)
-        or _BARE_CREDENTIAL_FILE.fullmatch(low)
+        low in _SSH_KEY_NAMES or low.endswith(_KEY_SUFFIXES) or _BARE_CREDENTIAL_FILE.fullmatch(low)
     ):
         return "high"
     if low == ".env" or low.startswith(".env.") or low in _OTHER_SECRET_NAMES:
@@ -168,9 +166,11 @@ def _command_hits(command: str) -> list[Hit]:
             t.startswith("of=/dev/") and t[3:] not in _NOT_A_DISK for t in tokens
         ):
             hits.append(("disk_write", "high", summary))
-        elif (head == "terraform" and "destroy" in tokens) or (
-            head == "kubectl" and "delete" in tokens
-        ) or (head == "helm" and "uninstall" in tokens):
+        elif (
+            (head == "terraform" and "destroy" in tokens)
+            or (head == "kubectl" and "delete" in tokens)
+            or (head == "helm" and "uninstall" in tokens)
+        ):
             hits.append(("infra_destroy", "medium", summary))
         if any(_base(t) in _SQL_CLIENTS for t in tokens):
             sql_client = True
@@ -225,7 +225,10 @@ def find_risky_actions(events: list[Event]) -> list[RiskyAction]:
         for rule, severity, summary in risks_for_call(e):
             out.append(
                 RiskyAction(
-                    seq=e.seq, tool=e.tool or "unknown", summary=summary, severity=severity,
+                    seq=e.seq,
+                    tool=e.tool or "unknown",
+                    summary=summary,
+                    severity=severity,
                     rule=rule,
                 )
             )

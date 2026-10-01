@@ -48,9 +48,17 @@ def test_bash_rules(command: str, expected: tuple[str, str]) -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        "go test ./...", "ls -la", "rm file.txt", "rm build/out.o", "git push origin main",
-        "git status", 'psql -c "DELETE FROM users WHERE id = 1"', "cat .env.example",
-        "cat ~/.ssh/id_rsa.pub", "chmod 644 f", "curl https://x.test -o f",
+        "go test ./...",
+        "ls -la",
+        "rm file.txt",
+        "rm build/out.o",
+        "git push origin main",
+        "git status",
+        'psql -c "DELETE FROM users WHERE id = 1"',
+        "cat .env.example",
+        "cat ~/.ssh/id_rsa.pub",
+        "chmod 644 f",
+        "curl https://x.test -o f",
     ],
 )
 def test_benign_commands_are_not_flagged(command: str) -> None:
@@ -65,11 +73,21 @@ def test_one_hit_per_rule_per_call_keeping_the_most_severe() -> None:
 @pytest.mark.parametrize(
     ("name", "severity"),
     [
-        (".env", "medium"), (".env.production", "medium"), (".npmrc", "medium"),
-        ("/h/.netrc", "medium"), ("C:\\u\\.pgpass", "medium"), (".git-credentials", "high"),
-        ("id_ed25519", "high"), ("server.pem", "high"), ("a.key", "high"), ("x.jks", "high"),
+        (".env", "medium"),
+        (".env.production", "medium"),
+        (".npmrc", "medium"),
+        ("/h/.netrc", "medium"),
+        ("C:\\u\\.pgpass", "medium"),
+        (".git-credentials", "high"),
+        ("id_ed25519", "high"),
+        ("server.pem", "high"),
+        ("a.key", "high"),
+        ("x.jks", "high"),
         ("aws-credentials.json", "high"),
-        ("id_rsa.pub", None), (".env.example", None), ("main.go", None), ("envrc", None),
+        ("id_rsa.pub", None),
+        (".env.example", None),
+        ("main.go", None),
+        ("envrc", None),
     ],
 )
 def test_secret_file_names(name: str, severity: str | None) -> None:
@@ -85,7 +103,9 @@ def test_secret_file_read_by_tool(fixture: Fx) -> None:
 def test_fixture_risky_actions_in_order(fixture: Fx) -> None:
     a = analyze(parse(fixture("claude_full.jsonl")))
     assert [(r.rule, r.severity) for r in a.risky_actions] == [
-        ("rm_rf", "medium"), ("git_force_push", "high"), ("secret_file", "medium"),
+        ("rm_rf", "medium"),
+        ("git_force_push", "high"),
+        ("secret_file", "medium"),
     ]
     assert a.risky_actions[0].seq == 17
 

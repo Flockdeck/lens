@@ -31,8 +31,15 @@ def server() -> Iterator[FakeServer]:
     srv.server_close()
 
 
-def call(srv: FakeServer, method: str, path: str, *, body: bytes | None = None,
-         headers: dict[str, str] | None = None, token: str | None = TOKEN) -> tuple[int, Any]:
+def call(
+    srv: FakeServer,
+    method: str,
+    path: str,
+    *,
+    body: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    token: str | None = TOKEN,
+) -> tuple[int, Any]:
     h = dict(headers or {})
     if token:
         h["Authorization"] = f"Bearer {token}"
@@ -50,8 +57,14 @@ def multipart(files: list[tuple[str, bytes]]) -> tuple[bytes, dict[str, str]]:
     boundary = uuid.uuid4().hex
     out = b""
     for name, data in files:
-        out += (f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{name}"\r\n'
-                "Content-Type: application/octet-stream\r\n\r\n").encode() + data + b"\r\n"
+        out += (
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{name}"\r\n'
+                "Content-Type: application/octet-stream\r\n\r\n"
+            ).encode()
+            + data
+            + b"\r\n"
+        )
     out += f"--{boundary}--\r\n".encode()
     return out, {"Content-Type": f"multipart/form-data; boundary={boundary}"}
 
@@ -69,7 +82,9 @@ def test_api_requires_token(server: FakeServer) -> None:
 
 
 def test_batch_lifecycle_with_rejections_and_retry(server: FakeServer) -> None:
-    body, headers = multipart([("a.jsonl", b"{}"), ("bad1.jsonl", b"{}"), ("notes.txt", b"x"), ("empty.jsonl", b"")])
+    body, headers = multipart(
+        [("a.jsonl", b"{}"), ("bad1.jsonl", b"{}"), ("notes.txt", b"x"), ("empty.jsonl", b"")]
+    )
     status, created = call(server, "POST", "/batches", body=body, headers=headers)
     assert status == 202
     assert created["accepted"] == ["a.jsonl", "bad1.jsonl"]
@@ -100,7 +115,9 @@ def test_sessions_filter_and_paginate(server: FakeServer) -> None:
     _, page3 = call(server, "GET", "/sessions?limit=25&offset=50")
     assert page1["total"] == 60 and len(page1["items"]) == 25 and len(page3["items"]) == 10
     _, mine = call(server, "GET", "/sessions?project=vael&outcome=done")
-    assert mine["items"] and all(s["project"] == "vael" and s["outcome"] == "done" for s in mine["items"])
+    assert mine["items"] and all(
+        s["project"] == "vael" and s["outcome"] == "done" for s in mine["items"]
+    )
 
 
 def test_session_detail_events_enrich_delete(server: FakeServer) -> None:
@@ -124,9 +141,18 @@ def test_session_detail_events_enrich_delete(server: FakeServer) -> None:
 
 def test_stats_shapes(server: FakeServer) -> None:
     _, trends = call(server, "GET", "/stats/trends?interval=week")
-    assert {"bucket", "sessions", "outcomes", "avg_frustration", "tool_error_rate"} <= set(trends[0])
+    assert {"bucket", "sessions", "outcomes", "avg_frustration", "tool_error_rate"} <= set(
+        trends[0]
+    )
     _, compare = call(server, "GET", "/stats/compare?by=model")
-    assert {"key", "sessions", "outcomes", "tool_error_rate", "permission_denial_rate", "avg_frustration"} <= set(compare[0])
+    assert {
+        "key",
+        "sessions",
+        "outcomes",
+        "tool_error_rate",
+        "permission_denial_rate",
+        "avg_frustration",
+    } <= set(compare[0])
     _, usage = call(server, "GET", "/stats/usage")
     assert set(usage) == {"input_tokens", "output_tokens", "enrichments"}
 
@@ -139,16 +165,28 @@ def test_js_helpers_under_node() -> None:
 
 
 def test_config_shape_and_no_store(server: FakeServer) -> None:
-    req = urllib.request.Request(server.url + "/config", headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        server.url + "/config", headers={"Authorization": f"Bearer {TOKEN}"}
+    )
     with urllib.request.urlopen(req) as res:  # noqa: S310
         assert res.headers["Cache-Control"] == "no-store"
         cfg = json.loads(res.read())
-    assert set(cfg) == {"storage", "enricher", "raw_retention_days", "cleanup_interval_seconds", "version"}
+    assert set(cfg) == {
+        "storage",
+        "enricher",
+        "raw_retention_days",
+        "cleanup_interval_seconds",
+        "version",
+    }
     assert call(server, "GET", "/config", token=None)[0] == 401
 
 
 def web_files() -> list[Path]:
-    return [p for p in WEB_ROOT.rglob("*") if p.is_file() and p.suffix in {".html", ".js", ".css", ".mjs"}]
+    return [
+        p
+        for p in WEB_ROOT.rglob("*")
+        if p.is_file() and p.suffix in {".html", ".js", ".css", ".mjs"}
+    ]
 
 
 def test_web_files_make_no_external_requests() -> None:
@@ -156,7 +194,9 @@ def test_web_files_make_no_external_requests() -> None:
     allowed = ("http://www.w3.org/",)
     offenders = []
     for path in web_files():
-        for url in re.findall(r"(?:https?:)?//[A-Za-z0-9.-]+\.[A-Za-z]{2,}[^\s\"'`)<>]*", path.read_text("utf-8")):
+        for url in re.findall(
+            r"(?:https?:)?//[A-Za-z0-9.-]+\.[A-Za-z]{2,}[^\s\"'`)<>]*", path.read_text("utf-8")
+        ):
             if url.startswith("//") and not url.startswith("//www."):
                 continue  # a JS comment, not a protocol-relative URL
             if not url.startswith(allowed):
