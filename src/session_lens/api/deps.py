@@ -1,7 +1,8 @@
 """FastAPI dependencies: settings, database session, bearer-token auth, queue and enricher."""
 
+import logging
 import secrets
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import TYPE_CHECKING, Annotated, Protocol
 
 from fastapi import Depends, HTTPException, Request, status
@@ -61,10 +62,6 @@ class QueueApi(Protocol):
 
     async def cancel_batch(self, session: AsyncSession, batch_id: int) -> object: ...
 
-    async def read_raw(
-        self, session: AsyncSession, store: "RecordingStore", raw_id: int
-    ) -> bytes: ...
-
     async def delete_raws_for_hash(
         self, session: AsyncSession, store: "RecordingStore", content_hash: str
     ) -> int: ...
@@ -106,12 +103,6 @@ class _WorkerQueue:
 
         return await queue.cancel_batch(session, batch_id)
 
-    async def read_raw(self, session: AsyncSession, store: "RecordingStore", raw_id: int) -> bytes:
-        from session_lens.worker import queue
-
-        data: bytes = await queue.read_raw(session, store, raw_id)
-        return data
-
     async def delete_raws_for_hash(
         self, session: AsyncSession, store: "RecordingStore", content_hash: str
     ) -> int:
@@ -132,17 +123,47 @@ def get_queue() -> QueueApi:
     return _WorkerQueue()
 
 
-def get_store(request: Request) -> "RecordingStore":
-    """The object store, built once on first use and kept on the app."""
-    store = getattr(request.app.state, "store", None)
-    if store is None:
-        from session_lens.storage.base import build_store
-
-        store = request.app.state.store = build_store(request.app.state.settings)
-    return store
+StoreProvider = Callable[[], "RecordingStore"]
+EnricherProvider = Callable[[], "Enricher"]
 
 
-def get_enricher(settings: Annotated[Settings, Depends(get_app_settings)]) -> "Enricher":
-    from session_lens.enrich.base import build_enricher
+def get_store_provider(request: Request) -> StoreProvider:
+    """A callable that builds the object store on first use (so a bad config fails the
+    handler that needs it with a 503, not every request) and caches it on the app."""
 
-    return build_enricher(settings)
+    def provide() -> "RecordingStore":
+        store: RecordingStore | None = getattr(request.app.state, "store", None)
+        if store is None:
+            from session_lens.storage.base import build_store
+
+            store = build_store(request.app.state.settings)
+            request.app.state.store = store
+        return store
+
+    return provide
+
+
+def get_enricher_provider(request: Request) -> EnricherProvider:
+    """Like `get_store_provider`, for the enricher (e.g. a missing API key fails lazily)."""
+
+    def provide() -> "Enricher":
+        enricher: Enricher | None = getattr(request.app.state, "enricher", None)
+        if enricher is None:
+            from session_lens.enrich.base import build_enricher
+
+            enricher = build_enricher(request.app.state.settings)
+            request.app.state.enricher = enricher
+        return enricher
+
+    return provide
+
+
+def provide_or_503[T](provider: Callable[[], T], what: str) -> T:
+    """Call a lazy provider; any failure becomes a 503 (the exception type is logged)."""
+    try:
+        return provider()
+    except Exception as exc:
+        logging.getLogger("session_lens.api").error(
+            "dependency unavailable", extra={"dependency": what, "exc_type": type(exc).__name__}
+        )
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"{what} unavailable") from exc

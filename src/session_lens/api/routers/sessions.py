@@ -3,14 +3,25 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import ColumnElement, delete, exists, func, select
+from sqlalchemy import ColumnElement, delete, exists, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
-from session_lens.api.deps import QueueApi, get_db, get_enricher, get_queue, get_store
+from session_lens.api.dates import RANGE_DOC, range_conditions
+from session_lens.api.deps import (
+    EnricherProvider,
+    QueueApi,
+    StoreProvider,
+    get_db,
+    get_enricher_provider,
+    get_queue,
+    get_store_provider,
+    provide_or_503,
+)
 from session_lens.api.schemas import (
     EnrichmentOut,
     EventsPage,
@@ -20,10 +31,6 @@ from session_lens.api.schemas import (
 )
 from session_lens.db.models import Enrichment, RawRecording
 from session_lens.db.models import Session as SessionRow
-
-if TYPE_CHECKING:
-    from session_lens.enrich.base import Enricher
-    from session_lens.storage.base import RecordingStore
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 log = logging.getLogger("session_lens.api.sessions")
@@ -35,12 +42,6 @@ _SORTS: dict[str, Any] = {
     "project": SessionRow.project,
     "frustration": Enrichment.frustration,
 }
-
-
-def _naive_utc(value: datetime | None) -> datetime | None:
-    if value is not None and value.tzinfo is not None:
-        return value.astimezone(UTC).replace(tzinfo=None)
-    return value
 
 
 def _summary_fields(row: SessionRow, raw_available: bool) -> dict[str, Any]:
@@ -102,22 +103,60 @@ async def _detail(db: AsyncSession, session_id: int) -> SessionDetail:
     return _detail_of(row, available)
 
 
-async def _read_raw(
-    db: AsyncSession, queue: QueueApi, store: "RecordingStore", row: SessionRow
-) -> bytes:
+async def _fetch_raw(db: AsyncSession, store_provider: StoreProvider, raw_id: int | None) -> bytes:
+    """Fetch a recording without holding a DB transaction or pooled connection during the
+    object-store call: look up the key, end the transaction, then read from the store.
+
+    410 if the file is expired/missing; 503 if the store itself is failing.
+    """
     from session_lens.storage.base import RecordingExpired
 
     gone = HTTPException(status.HTTP_410_GONE, "raw recording has expired or been deleted")
-    if row.raw_id is None:
+    if raw_id is None:
         raise gone
+    found = (
+        await db.execute(
+            select(RawRecording.object_key, RawRecording.expired_at).where(
+                RawRecording.id == raw_id
+            )
+        )
+    ).first()
+    await db.rollback()  # release the connection before the slow call
+    if found is None or found.expired_at is not None:
+        raise gone
+    store = provide_or_503(store_provider, "object store")
     try:
-        return await queue.read_raw(db, store, row.raw_id)
+        data: bytes = await store.get(found.object_key)
+        return data
     except RecordingExpired as exc:
-        await db.commit()  # read_raw marks the row expired
+        # The object is gone (lifecycle rule ran before `cleanup`): record it in a fresh
+        # transaction so the API reports raw_available=false from now on.
+        await db.execute(
+            update(RawRecording)
+            .where(RawRecording.id == raw_id, RawRecording.expired_at.is_(None))
+            .values(expired_at=datetime.now(UTC).replace(tzinfo=None))
+        )
+        await db.commit()
         raise gone from exc
+    except Exception as exc:
+        log.error("object store get failed", extra={"exc_type": type(exc).__name__})
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "object store unavailable"
+        ) from exc
 
 
-@router.get("", response_model=SessionList)
+@router.get(
+    "",
+    response_model=SessionList,
+    description=(
+        "List sessions. "
+        + RANGE_DOC
+        + " The range applies to `started_at`: sessions whose `started_at` is NULL (for example "
+        "a recording that never logged a start) are excluded whenever `from` or `to` is given, "
+        "and are included otherwise. Sorting by a nullable column puts NULLs last when "
+        "descending and first when ascending."
+    ),
+)
 async def list_sessions(
     db: Annotated[AsyncSession, Depends(get_db)],
     project: str | None = None,
@@ -125,8 +164,8 @@ async def list_sessions(
     model: str | None = None,
     category: str | None = None,
     outcome: str | None = None,
-    from_: Annotated[datetime | None, Query(alias="from")] = None,
-    to: datetime | None = None,
+    from_: Annotated[str | None, Query(alias="from", examples=["2026-01-01"])] = None,
+    to: Annotated[str | None, Query(examples=["2026-01-31"])] = None,
     sort: Literal["started_at", "ended_at", "created_at", "project", "frustration"] = "started_at",
     order: Literal["asc", "desc"] = "desc",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -142,10 +181,7 @@ async def list_sessions(
     ):
         if value is not None:
             conditions.append(column == value)
-    if (start := _naive_utc(from_)) is not None:
-        conditions.append(SessionRow.started_at >= start)
-    if (end := _naive_utc(to)) is not None:
-        conditions.append(SessionRow.started_at <= end)
+    conditions += range_conditions(SessionRow.started_at, from_, to)
 
     base = select(SessionRow).outerjoin(SessionRow.enrichment).where(*conditions)
     total = (
@@ -185,16 +221,22 @@ async def get_session(
 async def get_events(
     session_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    queue: Annotated[QueueApi, Depends(get_queue)],
-    store: Annotated["RecordingStore", Depends(get_store)],
+    store_provider: Annotated[StoreProvider, Depends(get_store_provider)],
     after_seq: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> EventsPage:
     from session_lens.recording.parser import parse
 
     row, _ = await _get_row(db, session_id)
-    data = await _read_raw(db, queue, store, row)
-    events = await asyncio.to_thread(parse, data)
+    data = await _fetch_raw(db, store_provider, row.raw_id)
+    try:
+        events = await asyncio.to_thread(parse, data)
+    except Exception as exc:
+        log.warning(
+            "recording unparseable",
+            extra={"session_id": session_id, "exc_type": type(exc).__name__},
+        )
+        raise HTTPException(422, "recording could not be parsed") from exc
     later = [e for e in events if e.seq > after_seq]
     page = later[:limit]
     dumped = [e.model_dump(by_alias=True, mode="json") for e in page]
@@ -206,19 +248,29 @@ async def get_events(
 async def reenrich(
     session_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    enricher: Annotated["Enricher", Depends(get_enricher)],
+    enricher_provider: Annotated[EnricherProvider, Depends(get_enricher_provider)],
     queue: Annotated[QueueApi, Depends(get_queue)],
-    store: Annotated["RecordingStore", Depends(get_store)],
+    store_provider: Annotated[StoreProvider, Depends(get_store_provider)],
 ) -> SessionDetail:
+    """Re-run enrichment, overwriting the stored result.
+
+    No DB transaction is held while the file is fetched, parsed or sent to the LLM; the result
+    is written in a fresh transaction (retried once on a concurrent-insert conflict).
+    """
     from session_lens.enrich.base import EnrichmentError
-    from session_lens.recording.parser import EmptyRecording, UnsupportedVersion, analyze, parse
+    from session_lens.recording.parser import analyze, parse
 
     row, _ = await _get_row(db, session_id)
-    data = await _read_raw(db, queue, store, row)
+    data = await _fetch_raw(db, store_provider, row.raw_id)
     try:
         analysis = await asyncio.to_thread(lambda: analyze(parse(data)))
-    except (UnsupportedVersion, EmptyRecording) as exc:
-        raise HTTPException(422, type(exc).__name__) from exc
+    except Exception as exc:
+        log.warning(
+            "recording unparseable",
+            extra={"session_id": session_id, "exc_type": type(exc).__name__},
+        )
+        raise HTTPException(422, "recording could not be parsed") from exc
+    enricher = provide_or_503(enricher_provider, "enricher")
     try:
         result = await enricher.enrich(analysis)
     except EnrichmentError as exc:
@@ -227,8 +279,31 @@ async def reenrich(
         )
         code = status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_502_BAD_GATEWAY
         raise HTTPException(code, "enrichment failed") from exc
-    await queue.upsert_enrichment(db, session_id, result)
-    await db.commit()
+    except Exception as exc:
+        log.error(
+            "re-enrich crashed", extra={"session_id": session_id, "exc_type": type(exc).__name__}
+        )
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "enrichment failed") from exc
+
+    for attempt in (1, 2):
+        try:
+            await queue.upsert_enrichment(db, session_id, result)
+            await db.commit()
+            break
+        except IntegrityError as exc:
+            # A concurrent re-enrich inserted the row first (unique session_id): retry once,
+            # when the upsert will find it and overwrite. Or the session was deleted meanwhile.
+            await db.rollback()
+            exists_now = (
+                await db.execute(select(func.count()).where(SessionRow.id == session_id))
+            ).scalar_one()
+            await db.rollback()
+            if not exists_now:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+            if attempt == 2:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "concurrent re-enrichment, try again"
+                ) from exc
     log.info("session re-enriched", extra={"session_id": session_id})
     return await _detail(db, session_id)
 
@@ -238,10 +313,11 @@ async def delete_session(
     session_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
     queue: Annotated[QueueApi, Depends(get_queue)],
-    store: Annotated["RecordingStore", Depends(get_store)],
+    store_provider: Annotated[StoreProvider, Depends(get_store_provider)],
 ) -> Response:
     row, _ = await _get_row(db, session_id)
     content_hash = row.content_hash
+    store = provide_or_503(store_provider, "object store")
     await db.execute(delete(Enrichment).where(Enrichment.session_id == session_id))
     await db.execute(delete(SessionRow).where(SessionRow.id == session_id))
     await queue.delete_raws_for_hash(db, store, content_hash)

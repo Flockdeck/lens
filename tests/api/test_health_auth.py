@@ -42,12 +42,12 @@ async def test_readyz_503_when_store_down(client: httpx.AsyncClient, store: InMe
 
 async def test_readyz_503_when_db_unreachable(database_url: str, store: InMemoryStore) -> None:
     from session_lens.api.app import create_app
-    from session_lens.api.deps import get_store
+    from session_lens.api.deps import get_store_provider
     from session_lens.config import Settings
 
     bad = database_url.rsplit("@", 1)[0] + "@127.0.0.1:1/none"
     app = create_app(Settings(database_url=bad, api_token="t"))
-    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_store_provider] = lambda: lambda: store
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:

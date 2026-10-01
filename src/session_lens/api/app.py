@@ -1,6 +1,7 @@
 """FastAPI app factory: `uvicorn session_lens.api.app:create_app --factory`."""
 
 import logging
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 from prometheus_client.platform_collector import PlatformCollector
 from prometheus_client.process_collector import ProcessCollector
@@ -19,6 +21,11 @@ from starlette.types import Scope
 
 import session_lens.web
 from session_lens.api.deps import require_token
+from session_lens.api.limits import (
+    BodySizeLimit,
+    RequestTooLarge,
+    request_too_large_handler,
+)
 from session_lens.api.logging import setup_logging
 from session_lens.api.routers import batches, health, sessions, stats
 from session_lens.config import Settings, get_settings
@@ -26,6 +33,11 @@ from session_lens.config import Settings, get_settings
 log = logging.getLogger("session_lens.api")
 
 _HIDDEN_SUFFIXES = (".py", ".pyc")
+_DEFAULT_TOKEN = "dev-token"  # the Settings default; never acceptable outside local dev
+
+
+def insecure_dev_allowed() -> bool:
+    return os.environ.get("ALLOW_INSECURE_DEV") == "1"
 
 
 class WebFiles(StaticFiles):
@@ -40,6 +52,12 @@ class WebFiles(StaticFiles):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     setup_logging(settings.log_level)
+    dev_mode = insecure_dev_allowed()
+    if not settings.api_token or (settings.api_token == _DEFAULT_TOKEN and not dev_mode):
+        raise RuntimeError(
+            "API_TOKEN is unset or still the default 'dev-token'. Set a real API_TOKEN, or set "
+            "ALLOW_INSECURE_DEV=1 to run locally with the default token."
+        )
 
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 
@@ -48,7 +66,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await engine.dispose()
 
-    app = FastAPI(title="session-lens", lifespan=lifespan)
+    # Interactive docs and the schema are only exposed in explicit dev mode.
+    app = FastAPI(
+        title="session-lens",
+        lifespan=lifespan,
+        docs_url="/docs" if dev_mode else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if dev_mode else None,
+    )
+    app.add_exception_handler(RequestTooLarge, request_too_large_handler)
+    # Added first, so innermost: counts streamed upload bytes (also for chunked bodies).
+    app.add_middleware(BodySizeLimit, max_bytes=settings.max_request_bytes, path="/batches")
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessionmaker = async_sessionmaker[AsyncSession](engine, expire_on_commit=False)
@@ -83,24 +111,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request_id = uuid.uuid4().hex
         started = time.perf_counter()
         status_code = 500
+        response: Response
         try:
             response = await call_next(request)
             status_code = response.status_code
-            response.headers["X-Request-ID"] = request_id
-            return response
-        finally:
-            elapsed = time.perf_counter() - started
-            route = getattr(request.scope.get("route"), "path", "unmatched")
-            requests_total.labels(request.method, route, str(status_code)).inc()
-            request_seconds.labels(request.method, route).observe(elapsed)
-            extra: dict[str, Any] = {
-                "request_id": request_id,
-                "method": request.method,
-                "route": route,
-                "status": status_code,
-                "duration_ms": round(elapsed * 1000, 1),
-            }
-            log.info("request", extra=extra)
+        except Exception:
+            # Log the type and file:line frames only (see JsonFormatter); never the message.
+            log.error(
+                "unhandled exception",
+                extra={"request_id": request_id, "method": request.method},
+                exc_info=True,
+            )
+            response = JSONResponse(
+                {"detail": "internal server error", "request_id": request_id}, status_code=500
+            )
+        response.headers["X-Request-ID"] = request_id
+        elapsed = time.perf_counter() - started
+        route = getattr(request.scope.get("route"), "path", "unmatched")
+        requests_total.labels(request.method, route, str(status_code)).inc()
+        request_seconds.labels(request.method, route).observe(elapsed)
+        extra: dict[str, Any] = {
+            "request_id": request_id,
+            "method": request.method,
+            "route": route,
+            "status": status_code,
+            "duration_ms": round(elapsed * 1000, 1),
+        }
+        log.info("request", extra=extra)
+        return response
 
     auth = [Depends(require_token)]
     app.include_router(health.router)

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from session_lens.api.app import create_app
-from session_lens.api.deps import get_queue, get_store
+from session_lens.api.deps import get_queue, get_store_provider
 from session_lens.config import Settings, get_settings
 from session_lens.db.models import Base
 from tests.api.standins import FakeQueue, InMemoryStore, importable, install_stubs
@@ -95,7 +95,7 @@ async def client(
     engine: AsyncEngine, app_settings: Settings, store: InMemoryStore
 ) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(app_settings)
-    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_store_provider] = lambda: lambda: store
     if not importable("session_lens.worker.queue"):
         app.dependency_overrides[get_queue] = lambda: FakeQueue()
     async with app.router.lifespan_context(app):

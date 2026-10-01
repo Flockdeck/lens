@@ -1,26 +1,32 @@
 """Batch submission and management."""
 
 import logging
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 
-from session_lens.api.deps import QueueApi, get_app_settings, get_db, get_queue, get_store
+from session_lens.api.deps import (
+    QueueApi,
+    StoreProvider,
+    get_app_settings,
+    get_db,
+    get_queue,
+    get_store_provider,
+    provide_or_503,
+)
 from session_lens.api.schemas import BatchAccepted, BatchItemOut, BatchOut, RejectedFile
 from session_lens.api.uploads import check_file
 from session_lens.config import Settings
 from session_lens.db.models import Batch, ItemStatus, RawRecording
 
 router = APIRouter(prefix="/batches", tags=["batches"])
-if TYPE_CHECKING:
-    from session_lens.storage.base import RecordingStore
-
 log = logging.getLogger("session_lens.api.batches")
 
 
@@ -63,11 +69,10 @@ async def submit_batch(
     db: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_app_settings)],
     queue: Annotated[QueueApi, Depends(get_queue)],
-    store: Annotated["RecordingStore", Depends(get_store)],
+    store_provider: Annotated[StoreProvider, Depends(get_store_provider)],
 ) -> BatchAccepted | JSONResponse:
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > settings.max_request_bytes:
-        raise HTTPException(413, "request too large")
+    # The request-wide size cap (declared or streamed) is enforced by BodySizeLimit.
+    store = provide_or_503(store_provider, "object store")
     try:
         form = await request.form(max_files=settings.max_files_per_batch, max_fields=10)
     except MultiPartException as exc:
@@ -86,8 +91,21 @@ async def submit_batch(
             if total > settings.max_request_bytes:
                 rejected.append(RejectedFile(filename=name, reason="request size limit exceeded"))
                 continue
-            # One file in memory at a time: put it in the store, then drop the bytes.
-            accepted.append((name, await queue.store_raw(db, store, outcome)))
+            # One file in memory at a time: put it in the store, then drop the bytes. If a later
+            # step fails (or the transaction rolls back) after some puts, those objects are left
+            # orphaned in the bucket; the bucket lifecycle rule expires them, and no raw_recordings
+            # row points at them because the rows roll back with the transaction.
+            try:
+                raw = await queue.store_raw(db, store, outcome)
+            except SQLAlchemyError:
+                raise
+            except Exception as exc:
+                await db.rollback()
+                log.error("object store put failed", extra={"exc_type": type(exc).__name__})
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE, "object store unavailable"
+                ) from exc
+            accepted.append((name, raw))
         if not accepted:
             await db.rollback()
             log.info("batch rejected", extra={"rejected": len(rejected)})

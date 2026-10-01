@@ -4,10 +4,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from session_lens.api.dates import RANGE_DOC, range_conditions
 from session_lens.api.deps import get_db
 from session_lens.api.schemas import ComparePoint, TrendPoint, Usage
 from session_lens.db.models import Enrichment
@@ -77,11 +78,20 @@ def _aggregates() -> list[Any]:
     ]
 
 
-@router.get("/trends", response_model=list[TrendPoint])
+@router.get(
+    "/trends",
+    response_model=list[TrendPoint],
+    description=(
+        "Sessions bucketed by day or week (weeks start Monday, UTC), using `started_at` and "
+        "falling back to the upload time (`created_at`) when `started_at` is NULL. " + RANGE_DOC
+    ),
+)
 async def trends(
     db: Annotated[AsyncSession, Depends(get_db)],
     project: str | None = None,
     interval: Literal["day", "week"] = "day",
+    from_: Annotated[str | None, Query(alias="from", examples=["2026-01-01"])] = None,
+    to: Annotated[str | None, Query(examples=["2026-01-31"])] = None,
 ) -> list[TrendPoint]:
     moment = func.coalesce(SessionRow.started_at, SessionRow.created_at)
     day = func.date(moment)
@@ -96,6 +106,7 @@ async def trends(
     )
     if project is not None:
         stmt = stmt.where(SessionRow.project == project)
+    stmt = stmt.where(*range_conditions(moment, from_, to))
     accs: dict[str, _Acc] = defaultdict(_Acc)
     for row in (await db.execute(stmt)).all():
         accs[str(row.bucket)].add(row)
@@ -115,6 +126,7 @@ async def trends(
 async def compare(
     db: Annotated[AsyncSession, Depends(get_db)],
     by: Literal["agent", "model"] = "agent",
+    project: str | None = None,
 ) -> list[ComparePoint]:
     key_col = SessionRow.agent if by == "agent" else SessionRow.model
     stmt = (
@@ -123,6 +135,8 @@ async def compare(
         .outerjoin(Enrichment, Enrichment.session_id == SessionRow.id)
         .group_by(key_col, Enrichment.outcome)
     )
+    if project is not None:
+        stmt = stmt.where(SessionRow.project == project)
     accs: dict[str, _Acc] = defaultdict(_Acc)
     for row in (await db.execute(stmt)).all():
         accs[row.key or "unknown"].add(row)

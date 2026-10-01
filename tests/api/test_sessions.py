@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.deps import get_enricher
+from session_lens.api.deps import get_enricher_provider
 from session_lens.db.models import Enrichment, RawRecording
 from session_lens.db.models import Session as SessionRow
 from tests.api.standins import FakeQueue, InMemoryStore
@@ -20,7 +20,7 @@ async def seed(
     project: str = "proj",
     agent: str = "claude",
     model: str = "m1",
-    started: datetime = datetime(2026, 1, 1, 12),
+    started: datetime | None = datetime(2026, 1, 1, 12),
     outcome: str | None = "done",
     category: str = "bugfix",
     frustration: float = 0.2,
@@ -186,7 +186,7 @@ class _Enricher:
 
 
 def use_enricher(client: httpx.AsyncClient, enricher: _Enricher) -> None:
-    client.app.dependency_overrides[get_enricher] = lambda: enricher  # type: ignore[attr-defined]
+    client.app.dependency_overrides[get_enricher_provider] = lambda: lambda: enricher  # type: ignore[attr-defined]
 
 
 async def test_reenrich_overwrites(
