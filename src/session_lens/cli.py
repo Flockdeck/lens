@@ -49,6 +49,9 @@ def configure_logging(level: str) -> None:
 def cmd_api(args: argparse.Namespace) -> int:
     import uvicorn
 
+    from session_lens.api.app import warn_if_not_loopback
+
+    warn_if_not_loopback(args.host)
     uvicorn.run(API_APP, factory=True, host=args.host, port=args.port, log_config=None)
     return 0
 

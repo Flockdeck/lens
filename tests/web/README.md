@@ -30,6 +30,9 @@ argument as a file and fails).
 python tests/web/fake_server.py            # http://127.0.0.1:8765, token: dev-token
 ```
 
+Flags change `GET /config`: `--retention-days 0`, `--enricher ollama`, `--storage s3`, `--no-config`
+(makes it fail, to see the "Status unavailable" state).
+
 It serves the real static files plus canned data: a batch that advances on each poll, a file
 named `bad*.jsonl` that fails, and one session (the highest id) whose raw recording has
 expired (`raw_available: false`, events and enrich return 410).
@@ -37,3 +40,9 @@ expired (`raw_available: false`, events and enrich return 410).
 ## Filter semantics
 
 `from` and `to` on `GET /sessions` are inclusive UTC calendar days sent as bare `YYYY-MM-DD`.
+
+## Privacy checks
+
+`test_web_files_make_no_external_requests` fails if any file under `src/session_lens/web/`
+contains an absolute URL other than the W3C XML namespaces, so a CDN, web font or analytics
+script cannot slip in. `index.html` sets `<meta name="referrer" content="no-referrer">`.

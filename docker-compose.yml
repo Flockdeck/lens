@@ -1,3 +1,7 @@
+# Local-only stack: recordings never leave this machine.
+#   make up                    # token, then mysql, migrate, api (127.0.0.1:8000) and worker
+#   docker compose up -d mysql # just the database, for tests and `make api` / `make worker`
+# Raw recordings are stored on the filesystem in the shared `data` volume (DATA_DIR=/data).
 services:
   mysql:
     image: mysql:8.4
@@ -7,7 +11,7 @@ services:
       MYSQL_USER: session_lens
       MYSQL_PASSWORD: session_lens
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
     volumes:
       - mysql-data:/var/lib/mysql
@@ -17,17 +21,17 @@ services:
       timeout: 5s
       retries: 20
 
-  # OPTIONAL S3-compatible store (profile "s3"): only used with STORAGE=s3. By default
-  # recordings are files under DATA_DIR on the local filesystem and nothing leaves the machine.
-  # Start it with `docker compose --profile s3 up -d --wait s3 && docker compose --profile s3 run
-  # --rm s3-init`, then run the S3 tests with S3_ENDPOINT_URL=http://127.0.0.1:9000. SeaweedFS
-  # accepts the lifecycle rule but does not enforce it; the app deletes expired files itself.
+  # Optional S3-compatible store for raw recordings, off by default: `docker compose --profile s3
+  # up -d s3 s3-init`. Then point the app at it with S3_ENDPOINT_URL=http://s3:8333 and the S3_*
+  # settings. NOTE: SeaweedFS accepts and returns the 30-day lifecycle rule (so
+  # `session-lens check-bucket` passes) but does NOT enforce it. It needs path-style addressing
+  # (S3_ADDRESSING_STYLE=path if "auto" fails).
   s3:
     profiles: ["s3"]
     image: chrislusf/seaweedfs:4.48
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"]
     ports:
-      - "127.0.0.1:${S3_PORT:-9000}:8333"  # matches the S3_ENDPOINT_URL default
+      - "127.0.0.1:${S3_PORT:-9000}:8333"
     volumes:
       - s3-data:/data
     configs:
@@ -39,9 +43,8 @@ services:
       timeout: 5s
       retries: 30
 
-  # One-shot: creates the bucket, applies a 30-day expiry rule on recordings/ and reads it back,
-  # failing loudly if the server does not report it (it sweeps orphans from failed uploads; the
-  # app deletes expired files itself). Safe to re-run.
+  # One-shot: creates the bucket, applies the 30-day expiry rule on recordings/ and reads it back,
+  # failing loudly if the server does not report it. Safe to re-run.
   s3-init:
     profiles: ["s3"]
     image: amazon/aws-cli:latest
@@ -66,42 +69,51 @@ services:
         fi
         echo "lifecycle rule applied: recordings/ expire after $$days days (not enforced by SeaweedFS)"
 
-  # --- deploy: app services built from the Dockerfile (`docker compose up --build`) ---
+  # --- app services, built from the Dockerfile ---
 
   migrate:
     build: .
     command: ["session-lens", "migrate"]
     environment: &app-env
       DATABASE_URL: mysql+asyncmy://session_lens:session_lens@mysql:3306/session_lens?charset=utf8mb4
-      API_TOKEN: ${API_TOKEN:-dev-token}
-      # Local only: the app refuses a default API_TOKEN without this. Never set it in k8s.
-      ALLOW_INSECURE_DEV: "1"
+      # Random, generated into the git-ignored .env by `make token`.
+      API_TOKEN: ${API_TOKEN:?run `make token` first}
       ENRICHER: ${ENRICHER:-mock}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # Raw recordings: files in a volume shared by api and worker; nothing leaves the machine.
       STORAGE: filesystem
       DATA_DIR: /data
-      RAW_RETENTION_DAYS: "30"
+      RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-30}
+      # In-process retention sweep interval (the worker runs it); the app's default applies if unset.
+      # CLEANUP_INTERVAL_SECONDS: 3600
     depends_on:
       mysql: {condition: service_healthy}
     restart: "no"
 
   api:
     build: .
+    # Inside the container the API must bind 0.0.0.0 to be reachable through the published port;
+    # the host side is still loopback-only (127.0.0.1:8000 below).
     command: ["session-lens", "api", "--host", "0.0.0.0"]
     environment: *app-env
-    ports: ["127.0.0.1:8000:8000"]  # this machine only
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
-      - app-data:/data
+      - data:/data
     depends_on:
       migrate: {condition: service_completed_successfully}
 
   worker:
     build: .
     command: ["session-lens", "worker"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # Default is the mock enricher. To use a local Ollama on the host, set ENRICHER=ollama (in
+      # .env) and uncomment OLLAMA_URL and extra_hosts. The app validates that the URL is local.
+      # OLLAMA_URL: http://host.docker.internal:11434
+      # OLLAMA_MODEL: llama3.1:8b
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     volumes:
-      - app-data:/data
+      - data:/data
     depends_on:
       migrate: {condition: service_completed_successfully}
 
@@ -112,5 +124,6 @@ configs:
 
 volumes:
   mysql-data:
-  app-data:
+  data:
+    name: session-lens-data
   s3-data:

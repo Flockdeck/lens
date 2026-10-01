@@ -82,7 +82,7 @@ def _aggregates() -> list[Any]:
     "/trends",
     response_model=list[TrendPoint],
     description=(
-        "Sessions bucketed by day or week (weeks start Monday, UTC), using `started_at` and "
+        "Sessions grouped by day or week (weeks start Monday, UTC), using `started_at` and "
         "falling back to the upload time (`created_at`) when `started_at` is NULL. " + RANGE_DOC
     ),
 )

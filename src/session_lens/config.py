@@ -15,9 +15,11 @@ class Settings(BaseSettings):
     )
     api_token: str = "dev-token"
 
-    enricher: Literal["mock", "anthropic"] = "mock"
-    anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-haiku-4-5"
+    enricher: Literal["mock", "ollama"] = "mock"
+    # Local only: the URL must be this machine (checked when the enricher is built).
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.1:8b"
+    ollama_timeout_seconds: float = 120.0
 
     # Upload limits. Flockdeck caps a recording at 16 MiB.
     max_file_bytes: int = 17 * 1024 * 1024

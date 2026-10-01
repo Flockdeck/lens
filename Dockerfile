@@ -24,7 +24,12 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/alembic /app/alembic
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
+# Filesystem store for raw recordings; owned by the non-root user so a fresh named volume is writable.
+RUN mkdir /data && chown 65532:65532 /data
+ENV DATA_DIR=/data
+VOLUME /data
 USER 65532:65532
 EXPOSE 8000
-# Default is the API; the worker Deployment overrides the command.
-CMD ["session-lens", "api"]
+# Default is the API. It must bind 0.0.0.0 inside the container to be reachable through a
+# published port (publish to 127.0.0.1 on the host to keep it local). The worker overrides this.
+CMD ["session-lens", "api", "--host", "0.0.0.0"]

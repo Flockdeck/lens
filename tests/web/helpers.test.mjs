@@ -30,4 +30,16 @@ assert.deepEqual(lib.parseHash(""), { parts: ["submit"], query: {} });
 assert.deepEqual(lib.asList({ items: [1] }), [1]);
 assert.deepEqual(lib.asList([2]), [2]);
 
+const cfg = { storage: "filesystem", enricher: "mock", raw_retention_days: 30, cleanup_interval_seconds: null, version: "1" };
+assert.equal(lib.statusLine(cfg), "Local only · storage: filesystem · enrichment: mock · raw kept 30 days");
+assert.match(lib.statusLine({ ...cfg, raw_retention_days: 0 }), /raw kept until deleted$/);
+assert.match(lib.statusLine({ ...cfg, enricher: "ollama" }), /enrichment: local model/);
+assert.match(lib.statusLine({ ...cfg, raw_retention_days: 1 }), /raw kept 1 day$/);
+assert.match(lib.statusLine({ ...cfg, storage: "s3" }), /^Not verified as local-only/);
+assert.match(lib.statusLine({ ...cfg, enricher: "anthropic" }), /^Not verified as local-only/);
+assert.equal(lib.statusLine(null), "Status unavailable");
+assert.match(lib.expiredText(cfg), /^Raw recording expired after 30 days\./);
+assert.match(lib.expiredText({ ...cfg, raw_retention_days: 0 }), /retention is off/);
+assert.match(lib.expiredText(null), /after the retention period/);
+
 console.log("helpers ok");

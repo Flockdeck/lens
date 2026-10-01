@@ -33,10 +33,11 @@ def _admin_url() -> str:
     explicit = os.environ.get("MYSQL_ADMIN_URL")
     if explicit:
         return explicit
-    return (
-        make_url(_base_url())
-        .set(username="root", password="root", database="mysql")
-        .render_as_string(hide_password=False)
+    base = make_url(_base_url())
+    if base.username == "root":  # e.g. CI: DATABASE_URL already carries admin rights
+        return base.set(database="mysql").render_as_string(hide_password=False)
+    return base.set(username="root", password="root", database="mysql").render_as_string(
+        hide_password=False
     )
 
 
