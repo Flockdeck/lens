@@ -84,64 +84,74 @@ def build_enricher(settings: Settings) -> Enricher: ...   # mock or anthropic
 
 ## storage (owned by the worker component)
 
-Recordings live in an S3-compatible bucket: DigitalOcean Spaces in the cluster, SeaweedFS in docker
-compose and in CI. The database keeps **one `raw_recordings` row per file** (hash, size,
-`object_key`, `created_at`, `expired_at`); the bytes are fetched whole when needed (at most
-16 MiB). Use `aioboto3` with `endpoint_url`, `region`, bucket and keys from `Settings`.
+session-lens is local: **no recording data leaves the machine**. Raw recordings are files on the
+local filesystem under `DATA_DIR` by default (`STORAGE=filesystem`). An S3-compatible store
+(`STORAGE=s3`, a bucket you run yourself; `pip install session-lens[s3]`) is an optional
+implementation behind the same interface. The database keeps **one `raw_recordings` row per
+file** (hash, size, `object_key`, `created_at`, `expired_at`); the bytes are fetched whole when
+needed (at most 16 MiB).
 
 ```python
 # storage/base.py
-class RecordingExpired(Exception): ...           # object is gone (lifecycle rule, or deleted)
+class RecordingExpired(Exception): ...           # the file is gone (deleted by retention, or by hand)
 
 class RecordingStore(Protocol):
     async def put(self, key: str, data: bytes) -> None: ...
-    async def get(self, key: str) -> bytes: ...          # raises RecordingExpired on NoSuchKey
+    async def get(self, key: str) -> bytes: ...          # raises RecordingExpired if missing
     async def delete(self, key: str) -> None: ...        # idempotent
-    async def ping(self) -> None: ...                    # for /readyz; raises if unreachable
+    async def ping(self) -> None: ...                    # for /readyz; raises if unusable
+    async def aclose(self) -> None: ...                  # call once at shutdown
 
-def build_store(settings: Settings) -> RecordingStore: ...   # S3 (Spaces / SeaweedFS)
+def build_store(settings: Settings) -> RecordingStore: ...   # filesystem (default) or s3
 ```
 
-Object keys are `{s3_prefix}YYYY/MM/<uuid4>.jsonl`, one object per uploaded file, never shared
-between rows. Helpers in `worker/queue.py` (all take the store explicitly):
+`FilesystemStore(root)` writes atomically (temp file in the same directory, then `os.replace`),
+creates files 0600 and directories 0700 where the OS allows, removes empty parent directories on
+delete, and rejects any key that is absolute, contains `..`, or resolves outside the root
+(`InvalidKey`).
 
-- `await store_raw(session, store, data: bytes) -> RawRecording`: hash the bytes, **put the
-  object first**, then add the row (flushed, not committed). A failure after the put leaves an
-  orphan object, which the lifecycle rule removes; a row never points at a missing object.
+Keys are `{s3_prefix}YYYY/MM/<uuid4>.jsonl` (`s3_prefix` defaults to `recordings/` and applies to
+both stores), one file per upload, never shared between rows. Helpers in `worker/queue.py` (all
+take the store explicitly):
+
+- `await store_raw(session, store, data: bytes) -> RawRecording`: hash the bytes, **put the file
+  first**, then add the row (flushed, not committed). A failure after the put leaves an orphan
+  file (harmless, and unreferenced); a row never points at a missing file.
 - `await read_raw(session, store, raw_id) -> bytes`: raises `RecordingExpired` if the row has
-  `expired_at` set or the object is gone (and then sets `expired_at`).
-- `await delete_raws_for_hash(session, store, content_hash) -> int`: delete every raw row with
-  that hash and its object (used by delete-session; best effort on the object, then the row).
+  `expired_at` set or the file is gone (and then sets `expired_at`).
+- `await delete_raws_for_session(session, store, session_id) -> int`: delete every raw row and
+  file linked to the session (through `Session.raw_id` and `batch_items.session_id`; call it
+  before deleting the session; files best effort, then rows).
 
 ### Retention and cleanup
 
-- Raw recordings are kept `raw_retention_days` (30). Enforcement is a **bucket lifecycle rule**
-  that expires objects under the prefix after the same number of days (terrawost sets it on
-  Spaces, the only place it is actually enforced). `docker-compose` applies the same rule to the
-  local SeaweedFS bucket, but SeaweedFS stores it without enforcing it: locally, objects never
-  expire, while the app's `expired_at` marking and `read_raw` behave exactly the same. The app
-  never lists or sweeps the bucket. `session-lens check-bucket [--strict]` reads the bucket's
-  lifecycle configuration and warns (exit 1 with `--strict`) if there is no enabled expiry rule
-  covering the prefix at `raw_retention_days` or fewer; run it as a pre-deploy check or CronJob.
-- `session-lens cleanup` (a daily CronJob) only reconciles the database: it sets `expired_at`
-  on rows older than `raw_retention_days`, so the UI and API know the raw is gone without a
-  request to the bucket. It does not delete objects. It also deletes finished batches (and
-  their items) older than 90 days; sessions, metrics and enrichments are kept.
+- Retention is **enforced by the app**: raw files are kept `raw_retention_days` (default 30;
+  `0` keeps them forever). Cleanup deletes the stored file of each raw row past retention (best
+  effort; a missing file is fine) and then sets `expired_at`, in chunks. A raw that a queued or
+  running item still needs is skipped. It also deletes finished batches (and their items) older
+  than 90 days. Sessions, metrics and enrichments are kept.
+- The **worker runs cleanup in-process** every `cleanup_interval_seconds` (default 3600; `0`
+  disables) as a background task that logs and survives its own errors, so no CronJob is needed.
+  Cleanup holds a MySQL named lock (`GET_LOCK`), so overlapping runs (several workers, or a
+  manual run) skip instead of colliding. `session-lens cleanup` runs it once by hand.
+- `session-lens check-storage` prints which store is in use and verifies put/get/delete of a
+  probe object (exit 0/1). `session-lens check-bucket [--strict]` applies only to
+  `STORAGE=s3` (an optional bucket expiry rule only sweeps orphans from failed uploads).
 - An item that references an expired recording fails permanently ("raw recording expired").
   `GET /sessions/{id}/events` and `POST /sessions/{id}/enrich` return `410` for an expired
   recording; session responses carry `raw_available: bool` so the UI can disable them.
-- Deleting a session also deletes its raw rows and objects. Resubmitting the same content
-  creates a second raw row but the same session, which is why delete goes by `content_hash`.
-- Never log keys' contents or bytes; object keys are random and safe to log.
+- Deleting a session also deletes its raw rows and files. A longer upload of the same recording
+  session supersedes the stored session in place.
+- Never log recording content; object keys are random and safe to log.
 
 ## worker
 
 - `session-lens worker` runs the claim loop; `session-lens api` serves; `session-lens cleanup`
-  reconciles retention as above; `session-lens migrate` runs `alembic upgrade head`.
+  runs retention cleanup once (the worker also does it on a timer); `session-lens migrate` runs `alembic upgrade head`.
 - Claiming uses `with_for_update(skip_locked=True)`; stale claims (`locked_at` older than
   `claim_timeout_seconds`) are re-queued. Backoff sets `not_before`.
 - Processing one item: `read_raw` → `analyze(parse(data))` (in a thread) → upsert `Session`
-  keyed on `(recording_session, content_hash)` → `enrich` → upsert `Enrichment` → item `done`.
+  keyed on `recording_session` (superseded in place when the content differs) → `enrich` → upsert `Enrichment` → item `done`.
   A `Batch` becomes `done` when no item is queued or running.
 - Exposes `worker/queue.py` helpers the API reuses: `create_batch(session, store, files)`,
   `retry_failed(session, batch_id)`, `cancel_batch(session, batch_id)`, plus the storage helpers

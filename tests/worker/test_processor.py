@@ -237,9 +237,21 @@ async def test_object_gone_marks_row_expired_and_fails(sm, store):
         assert (await db.execute(select(RawRecording.expired_at))).scalar_one() is not None
 
 
-async def test_processing_through_the_real_s3_store(sm, s3_store):
-    _, (a,) = await run_one(sm, s3_store, FakeEnricher(), [("a.jsonl", recording("s3"))])
-    assert (await get_item(sm, a)).status == ItemStatus.done
+async def test_processing_end_to_end_with_every_real_store(sm, any_store):
+    _, (a,) = await run_one(sm, any_store, FakeEnricher(), [("a.jsonl", recording("e2e"))])
+    item = await get_item(sm, a)
+    assert item.status == ItemStatus.done
+    async with sm() as db:
+        assert (await db.execute(select(Enrichment))).scalar_one()
+
+
+async def test_processing_end_to_end_with_the_filesystem_store_and_real_files(sm, fs_store):
+    files = [("a.jsonl", recording("fs-a")), ("b.jsonl", recording("fs-b"))]
+    _, ids = await run_one(sm, fs_store, FakeEnricher(), files)
+    for i in ids:
+        assert (await get_item(sm, i)).status == ItemStatus.done
+    on_disk = sorted(p for p in fs_store.root.rglob("*.jsonl"))
+    assert len(on_disk) == 2  # the recordings are plain files under the data dir
 
 
 async def test_lost_claim_does_not_overwrite_the_new_holder(sm, store):

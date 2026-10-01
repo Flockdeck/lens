@@ -15,6 +15,7 @@ from session_lens.config import Settings
 from session_lens.db.models import BatchItem, ItemStatus, utcnow
 from session_lens.enrich.base import Enricher
 from session_lens.storage.base import RecordingStore
+from session_lens.worker.cleanup import run_cleanup
 from session_lens.worker.processor import Claim, ItemProcessor
 from session_lens.worker.queue import refresh_batch_status
 
@@ -99,6 +100,24 @@ async def recover_stale(
     return len(items)
 
 
+async def cleanup_loop(
+    sm: async_sessionmaker[AsyncSession],
+    store: RecordingStore,
+    settings: Settings,
+    stop: asyncio.Event,
+) -> None:
+    """Run retention cleanup now and then every `cleanup_interval_seconds` until `stop`. A failed
+    run is logged and retried next interval; it never takes the worker down. Several workers can
+    run this: cleanup holds a database lock, so overlapping runs skip."""
+    while not stop.is_set():
+        try:
+            await run_cleanup(sm, store, settings.raw_retention_days)
+        except Exception:
+            log.exception("cleanup failed")
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), settings.cleanup_interval_seconds)
+
+
 async def run_worker(
     sm: async_sessionmaker[AsyncSession],
     store: RecordingStore,
@@ -120,6 +139,9 @@ async def run_worker(
     last_sweep = clock() - STALE_SWEEP_SECONDS
 
     log.info("worker started", extra={"concurrency": settings.worker_concurrency})
+    cleaner: asyncio.Task[None] | None = None
+    if settings.cleanup_interval_seconds > 0:
+        cleaner = asyncio.create_task(cleanup_loop(sm, store, settings, stop))
     while not stop.is_set():
         claims: list[Claim] = []
         try:
@@ -160,4 +182,7 @@ async def run_worker(
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+    if cleaner is not None:
+        cleaner.cancel()  # idempotent work, safe to interrupt; its DB lock goes with the connection
+        await asyncio.gather(cleaner, return_exceptions=True)
     log.info("worker stopped")

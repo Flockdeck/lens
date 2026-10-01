@@ -10,10 +10,12 @@ import os
 import signal
 import subprocess
 import sys
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
-from session_lens.config import get_settings
+from session_lens.config import Settings, get_settings
+from session_lens.storage.base import build_store
 from session_lens.worker.cleanup import CleanupResult
 
 API_APP = "session_lens.api.app:create_app"  # the api component's app factory
@@ -96,11 +98,15 @@ def cmd_worker(_: argparse.Namespace) -> int:
 
 async def _cleanup() -> CleanupResult:
     from session_lens.db.session import dispose_engine, get_sessionmaker
+    from session_lens.storage.base import build_store
     from session_lens.worker.cleanup import run_cleanup
 
+    settings = get_settings()
+    store = build_store(settings)
     try:
-        return await run_cleanup(get_sessionmaker(), get_settings().raw_retention_days)
+        return await run_cleanup(get_sessionmaker(), store, settings.raw_retention_days)
     finally:
+        await store.aclose()
         await dispose_engine()
 
 
@@ -171,10 +177,14 @@ def cmd_migrate(args: argparse.Namespace) -> int:
 
 
 async def _check_bucket(strict: bool) -> int:
-    from session_lens.storage.base import build_store
-
     settings = get_settings()
+    if settings.storage != "s3":
+        print(f"not applicable: STORAGE={settings.storage} (this check is for the s3 store)")
+        return 0
+    from session_lens.storage.s3 import S3Store
+
     store = build_store(settings)
+    assert isinstance(store, S3Store)
     try:
         days = await store.expiry_days(settings.s3_prefix)
     except Exception as exc:  # unreachable, bad credentials, no such bucket
@@ -199,6 +209,41 @@ def cmd_check_bucket(args: argparse.Namespace) -> int:
     return asyncio.run(_check_bucket(args.strict))
 
 
+def _describe_store(settings: Settings) -> str:
+    if settings.storage == "s3":
+        return f"s3 endpoint={settings.s3_endpoint_url} bucket={settings.s3_bucket}"
+    return f"filesystem dir={Path(settings.data_dir).resolve()}"
+
+
+async def _check_storage() -> int:
+    """Put, get and delete a tiny probe object in the configured store."""
+    settings = get_settings()
+    print(f"storage: {_describe_store(settings)}")
+    store = build_store(settings)
+    key = f"{settings.s3_prefix}probe/{uuid.uuid4()}.jsonl"
+    probe = b'{"probe":true}'
+    try:
+        await store.ping()
+        await store.put(key, probe)
+        try:
+            if await store.get(key) != probe:
+                print("probe failed: read back different bytes")
+                return 1
+        finally:
+            await store.delete(key)
+    except Exception as exc:
+        print(f"probe failed ({type(exc).__name__})")
+        return 1
+    finally:
+        await store.aclose()
+    print("probe ok: put, get and delete work")
+    return 0
+
+
+def cmd_check_storage(_: argparse.Namespace) -> int:
+    return asyncio.run(_check_storage())
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="session-lens")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -210,17 +255,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             "API_TOKEN unless ALLOW_INSECURE_DEV=1 is set (local development only)."
         ),
     )
-    api.add_argument("--host", default="0.0.0.0")  # noqa: S104
+    api.add_argument(
+        "--host", default="127.0.0.1", help="bind address (default: this machine only)"
+    )
     api.add_argument("--port", type=int, default=8000)
     api.set_defaults(func=cmd_api)
     sub.add_parser("worker", help="run the batch item worker").set_defaults(func=cmd_worker)
     sub.add_parser(
-        "cleanup", help="mark raw recordings past retention expired; delete old batches"
+        "cleanup",
+        help="delete raw recordings past retention and old finished batches (the worker also "
+        "does this on a timer; use this for a manual run)",
     ).set_defaults(func=cmd_cleanup)
-    check = sub.add_parser(
-        "check-bucket",
-        help="warn if the bucket has no lifecycle expiry rule within raw_retention_days",
+    sub.add_parser(
+        "check-storage",
+        help="show the configured store and verify put/get/delete of a probe object (exit 0/1)",
+    ).set_defaults(func=cmd_check_storage)
+    check_help = (
+        "s3 store only: warn if the bucket has no expiry rule within raw_retention_days "
+        "(the app deletes expired files itself; a rule only sweeps orphans from failed uploads)"
     )
+    check = sub.add_parser("check-bucket", help=check_help, description=check_help)
     check.add_argument("--strict", action="store_true", help="exit 1 if the rule is missing")
     check.set_defaults(func=cmd_check_bucket)
     migrate = sub.add_parser("migrate", help="alembic upgrade head")

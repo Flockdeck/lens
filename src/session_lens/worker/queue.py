@@ -36,9 +36,9 @@ def new_object_key(prefix: str) -> str:
 
 
 async def store_raw(session: AsyncSession, store: RecordingStore, data: bytes) -> RawRecording:
-    """Hash `data`, put the object, then add the row (flushed, not committed). Putting first
-    means a row never points at a missing object; a failure after the put leaves an orphan
-    object, which the bucket's lifecycle rule removes."""
+    """Hash `data`, put the file, then add the row (flushed, not committed). Putting first
+    means a row never points at a missing file; a failure after the put leaves an orphan
+    file, which is unreferenced and harmless."""
     key = new_object_key(get_settings().s3_prefix)
     await store.put(key, data)
     raw = RawRecording(

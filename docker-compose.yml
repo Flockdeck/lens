@@ -17,16 +17,17 @@ services:
       timeout: 5s
       retries: 20
 
-  # S3-compatible object store for raw recordings (DigitalOcean Spaces in the cluster).
-  # NOTE: SeaweedFS accepts and returns the 30-day lifecycle rule (so `session-lens check-bucket`
-  # passes) but does NOT enforce it: `fs.configure` shows no TTL. Locally, objects never expire;
-  # the app's expired_at marking and read_raw behave the same either way. Only Spaces enforces
-  # the rule. SeaweedFS needs path-style addressing (S3_ADDRESSING_STYLE=path if "auto" fails).
+  # OPTIONAL S3-compatible store (profile "s3"): only used with STORAGE=s3. By default
+  # recordings are files under DATA_DIR on the local filesystem and nothing leaves the machine.
+  # Start it with `docker compose --profile s3 up -d --wait s3 && docker compose --profile s3 run
+  # --rm s3-init`, then run the S3 tests with S3_ENDPOINT_URL=http://127.0.0.1:9000. SeaweedFS
+  # accepts the lifecycle rule but does not enforce it; the app deletes expired files itself.
   s3:
+    profiles: ["s3"]
     image: chrislusf/seaweedfs:4.48
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"]
     ports:
-      - "${S3_PORT:-9000}:8333"  # matches the S3_ENDPOINT_URL default
+      - "127.0.0.1:${S3_PORT:-9000}:8333"  # matches the S3_ENDPOINT_URL default
     volumes:
       - s3-data:/data
     configs:
@@ -38,10 +39,11 @@ services:
       timeout: 5s
       retries: 30
 
-  # One-shot: creates the bucket, applies the 30-day expiry rule on recordings/ (the same rule
-  # terrawost sets on the Spaces bucket) and reads it back, failing loudly if the server does
-  # not report it. Safe to re-run.
+  # One-shot: creates the bucket, applies a 30-day expiry rule on recordings/ and reads it back,
+  # failing loudly if the server does not report it (it sweeps orphans from failed uploads; the
+  # app deletes expired files itself). Safe to re-run.
   s3-init:
+    profiles: ["s3"]
     image: amazon/aws-cli:latest
     depends_on:
       s3:
@@ -76,24 +78,21 @@ services:
       ALLOW_INSECURE_DEV: "1"
       ENRICHER: ${ENRICHER:-mock}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      S3_ENDPOINT_URL: http://s3:8333
-      S3_REGION: us-east-1
-      S3_ADDRESSING_STYLE: path
-      S3_BUCKET: session-lens
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
+      # Raw recordings: files in a volume shared by api and worker; nothing leaves the machine.
+      STORAGE: filesystem
+      DATA_DIR: /data
       RAW_RETENTION_DAYS: "30"
     depends_on:
       mysql: {condition: service_healthy}
-      s3: {condition: service_healthy}
-      s3-init: {condition: service_completed_successfully}
     restart: "no"
 
   api:
     build: .
-    command: ["session-lens", "api"]
+    command: ["session-lens", "api", "--host", "0.0.0.0"]
     environment: *app-env
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]  # this machine only
+    volumes:
+      - app-data:/data
     depends_on:
       migrate: {condition: service_completed_successfully}
 
@@ -101,6 +100,8 @@ services:
     build: .
     command: ["session-lens", "worker"]
     environment: *app-env
+    volumes:
+      - app-data:/data
     depends_on:
       migrate: {condition: service_completed_successfully}
 
@@ -111,4 +112,5 @@ configs:
 
 volumes:
   mysql-data:
+  app-data:
   s3-data:

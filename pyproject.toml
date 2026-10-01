@@ -13,11 +13,13 @@ dependencies = [
     "alembic>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "aioboto3>=13",
     "anthropic>=0.40",
     "prometheus-client>=0.20",
     "cryptography>=50.0.2",
 ]
+
+[project.optional-dependencies]
+s3 = ["aioboto3>=13"]  # only for STORAGE=s3
 
 [dependency-groups]
 dev = [
