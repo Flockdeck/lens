@@ -65,3 +65,18 @@ def test_chart_series_do_not_use_status_colours() -> None:
 def test_operable_controls_use_the_strong_border() -> None:
     assert re.search(r"\.btn\s*\{[^}]*border:\s*1px solid var\(--border-strong\)", CSS)
     assert re.search(r"select\s*\{[^}]*border:\s*1px solid var\(--border-strong\)", CSS)
+
+
+def test_flockdeck_mark_is_in_the_header_and_the_favicon() -> None:
+    mark = WEB / "img" / "flockdeck-mark.svg"
+    assert mark.exists()
+    assert 'class="brand-mark"' in INDEX and "img/flockdeck-mark.svg" in INDEX
+    assert re.search(r'rel="icon"[^>]*flockdeck-mark\.svg', INDEX)
+    assert 'aria-label="flockdeck"' in mark.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not FLOCKDECK_COLOR.exists(), reason="FLOCKDECK_DESIGN_DIR is not set")
+def test_mark_matches_flockdeck_source() -> None:
+    source = FLOCKDECK_COLOR.parent.parent / "cmd" / "sitegen" / "assets" / "favicon.svg"
+    if source.exists():
+        assert (WEB / "img" / "flockdeck-mark.svg").read_bytes() == source.read_bytes()
