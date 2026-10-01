@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from session_lens.api.deps import get_enricher_provider
 from session_lens.db.models import Enrichment, RawRecording
 from session_lens.db.models import Session as SessionRow
-from tests.api.standins import FakeQueue, InMemoryStore
+from session_lens.enrich.base import EnrichmentError, EnrichmentResult
+from session_lens.recording.models import Analysis
+from session_lens.storage.memory import InMemoryStore
+from session_lens.worker import queue
 
 
 async def seed(
@@ -29,7 +32,7 @@ async def seed(
 ) -> SessionRow:
     raw_row = None
     if raw is not None:
-        raw_row = await FakeQueue().store_raw(db, store, raw)
+        raw_row = await queue.store_raw(db, store, raw)
     row = SessionRow(
         recording_session=recording,
         content_hash=raw_row.content_hash if raw_row else "h" * 64,
@@ -161,28 +164,29 @@ async def test_events_and_enrich_410_when_raw_gone(
     assert (await client.get(f"/sessions/{lost.id}/events")).status_code == 410
 
 
-class _Result:
-    summary = "new summary"
-    category = "feature"
-    outcome = "stuck"
-    frustration = 0.9
-    stuck_points: list[Any] = []
-    prompt_feedback = None
-    risk_notes: list[Any] = []
-    input_tokens = 5
-    output_tokens = 6
-    model = "fake"
-    prompt_version = "v2"
+def result() -> EnrichmentResult:
+    return EnrichmentResult(
+        summary="new summary",
+        category="feature",
+        outcome="stuck",
+        frustration=0.9,
+        input_tokens=5,
+        output_tokens=6,
+        model="fake",
+        prompt_version="v2",
+    )
 
 
 class _Enricher:
+    """A fake implementing the real Enricher protocol."""
+
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
 
-    async def enrich(self, analysis: object) -> _Result:
+    async def enrich(self, analysis: Analysis) -> EnrichmentResult:
         if self.error:
             raise self.error
-        return _Result()
+        return result()
 
 
 def use_enricher(client: httpx.AsyncClient, enricher: _Enricher) -> None:
@@ -213,10 +217,7 @@ async def test_reenrich_failure_codes(
     retryable: bool,
     code: int,
 ) -> None:
-    from session_lens.enrich.base import EnrichmentError
-
-    err = EnrichmentError("failed")
-    err.retryable = retryable
+    err = EnrichmentError("failed", retryable=retryable)
     use_enricher(client, _Enricher(err))
     row = await seed(db, store, "s1", raw=make_jsonl(1))
     assert (await client.post(f"/sessions/{row.id}/enrich")).status_code == code

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.api.app import create_app
 from session_lens.api.deps import (
+    _WorkerQueue,
     get_enricher_provider,
     get_queue,
     get_store_provider,
@@ -22,7 +23,7 @@ from session_lens.api.logging import JsonFormatter
 from session_lens.config import Settings
 from session_lens.db.models import Enrichment
 from session_lens.db.models import Session as SessionRow
-from tests.api.standins import FakeQueue, InMemoryStore
+from session_lens.storage.memory import InMemoryStore
 from tests.api.test_batches import files
 from tests.api.test_sessions import _Enricher, names, seed, use_enricher
 
@@ -114,10 +115,7 @@ async def test_chunked_upload_over_cap_is_413(
 async def test_store_put_failure_is_503(
     client: httpx.AsyncClient, store: InMemoryStore, make_jsonl: Any
 ) -> None:
-    async def boom(key: str, data: bytes) -> None:
-        raise ConnectionError("s3 down")
-
-    store.put = boom  # type: ignore[method-assign]
+    store.fail_put = True
     resp = await client.post("/batches", files=files(("a.jsonl", make_jsonl(1))))
     assert resp.status_code == 503
 
@@ -203,7 +201,7 @@ async def test_enricher_crash_is_502(
     assert "recording text" not in resp.text
 
 
-class _FlakyQueue(FakeQueue):
+class _FlakyQueue(_WorkerQueue):
     """upsert_enrichment fails with a unique-constraint error `failures` times."""
 
     def __init__(self, failures: int, delete_session: bool = False) -> None:
@@ -366,7 +364,7 @@ async def test_lifespan_closes_a_built_store(app_settings: Settings, store: InMe
     app = create_app(app_settings)
     async with app.router.lifespan_context(app):
         app.state.store = store  # what the lazy provider does on first use
-    assert store.close_calls == 1
+    assert store.closed is True
 
 
 async def test_lifespan_without_built_store_and_failing_close(
