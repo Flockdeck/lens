@@ -46,7 +46,15 @@ class UnsupportedVersion(Exception): ...      # permanent failure
 class EmptyRecording(Exception): ...          # permanent failure
 def parse(data: bytes) -> list[Event]: ...    # tolerant: skips bad last line / unknown types
 def analyze(events: list[Event]) -> Analysis: ...
-def iter_events(data: bytes, after_seq: int = 0, limit: int = 200) -> list[Event]: ...  # raw view
+def parse_lines(lines: Iterable[str]) -> list[Event]: ...   # same tolerance as parse(), from stored lines
+def analyze_lines(lines: Iterable[str]) -> Analysis: ...    # parse_lines + analyze
+```
+
+`parse(data)` splits on `
+` and calls `parse_lines`. The raw event view reads a page of
+stored lines (`line_no` order) and calls `parse_lines` on just that page.
+
+```python
 ```
 
 `Metrics` (stored in `sessions.metrics`): `duration_seconds`, `turns`, `tool_calls`,
@@ -84,12 +92,15 @@ def build_enricher(settings: Settings) -> Enricher: ...   # mock or anthropic
   `session-lens migrate` runs `alembic upgrade head`.
 - Claiming uses `with_for_update(skip_locked=True)`; stale claims (`locked_at` older than
   `claim_timeout_seconds`) are re-queued. Backoff sets `not_before`.
-- Processing one item: decompress the raw blob → `parse` → `analyze` → upsert `Session` keyed on
+- Processing one item: read the recording's lines → `parse_lines` → `analyze` → upsert `Session` keyed on
   `(recording_session, content_hash)` → `enrich` → upsert `Enrichment` → item `done`. A
   `Batch` becomes `done` when no item is queued or running.
 - Exposes `worker/queue.py` helpers the API reuses: `create_batch(session, files)`,
   `retry_failed(session, batch_id)`, `cancel_batch(session, batch_id)`, and
-  `store_raw(session, data) -> RawRecording` (hash + zstd).
+  `store_raw(session, data) -> RawRecording` (hash the bytes, split on `
+`, insert one
+  `recording_lines` row per line in batches of about 500; no compression, no large packets),
+  and `read_lines(session, raw_id, after_line=0, limit=None) -> list[str]` (ordered by `line_no`).
 
 ## HTTP API (all JSON; everything except `/healthz`, `/readyz`, `/metrics` needs
 `Authorization: Bearer <API_TOKEN>`)
@@ -102,7 +113,8 @@ def build_enricher(settings: Settings) -> Enricher: ...   # mock or anthropic
 - `GET /sessions?project=&agent=&model=&category=&outcome=&from=&to=&limit=&offset=` →
   `{total, items: [SessionSummary]}`
 - `GET /sessions/{id}` → full record (metrics, risky actions, files touched, warnings, enrichment)
-- `GET /sessions/{id}/events?after_seq=&limit=` → events from the raw blob (`410` once deleted)
+- `GET /sessions/{id}/events?after_seq=&limit=` → a page of parsed events read from `recording_lines` (`after_seq` is matched against the
+  events' own `seq`; `410` once the raw recording is deleted)
 - `POST /sessions/{id}/enrich` (overwrites), `DELETE /sessions/{id}`
 - `GET /stats/trends?project=&interval=day|week` →
   `[{bucket, sessions, outcomes: {...}, avg_frustration, tool_error_rate}]`
