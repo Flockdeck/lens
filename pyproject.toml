@@ -15,6 +15,7 @@ dependencies = [
     "zstandard>=0.22",
     "anthropic>=0.40",
     "prometheus-client>=0.20",
+    "cryptography>=50.0.2",
 ]
 
 [dependency-groups]
