@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -135,6 +136,46 @@ def test_js_helpers_under_node() -> None:
     script = Path(__file__).with_name("helpers.test.mjs")
     run = subprocess.run(["node", str(script)], capture_output=True, text=True, check=False)  # noqa: S603, S607
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+def test_config_shape_and_no_store(server: FakeServer) -> None:
+    req = urllib.request.Request(server.url + "/config", headers={"Authorization": f"Bearer {TOKEN}"})
+    with urllib.request.urlopen(req) as res:  # noqa: S310
+        assert res.headers["Cache-Control"] == "no-store"
+        cfg = json.loads(res.read())
+    assert set(cfg) == {"storage", "enricher", "raw_retention_days", "cleanup_interval_seconds", "version"}
+    assert call(server, "GET", "/config", token=None)[0] == 401
+
+
+def web_files() -> list[Path]:
+    return [p for p in WEB_ROOT.rglob("*") if p.is_file() and p.suffix in {".html", ".js", ".css", ".mjs"}]
+
+
+def test_web_files_make_no_external_requests() -> None:
+    """No CDN, font or analytics: the only absolute URLs allowed are XML namespaces."""
+    allowed = ("http://www.w3.org/",)
+    offenders = []
+    for path in web_files():
+        for url in re.findall(r"(?:https?:)?//[A-Za-z0-9.-]+\.[A-Za-z]{2,}[^\s\"'`)<>]*", path.read_text("utf-8")):
+            if url.startswith("//") and not url.startswith("//www."):
+                continue  # a JS comment, not a protocol-relative URL
+            if not url.startswith(allowed):
+                offenders.append(f"{path.name}: {url}")
+    assert offenders == []
+    assert web_files()
+
+
+def test_index_sends_no_referrer_and_loads_only_local_assets() -> None:
+    html = (WEB_ROOT / "index.html").read_text("utf-8")
+    assert '<meta name="referrer" content="no-referrer">' in html
+    for ref in re.findall(r'(?:src|href)="([^"]+)"', html):
+        assert not re.match(r"^(?:[a-z]+:)?//", ref) or ref.startswith("data:"), ref
+
+
+def test_token_and_filenames_never_go_into_urls() -> None:
+    api_js = (WEB_ROOT / "js" / "api.js").read_text("utf-8")
+    assert "Authorization" in api_js and "access_token" not in api_js
+    assert "location.search" not in "".join(p.read_text("utf-8") for p in web_files())
 
 
 def test_web_root_exists() -> None:

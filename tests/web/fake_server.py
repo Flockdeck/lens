@@ -132,6 +132,11 @@ class State:
         self.deleted_raw = {str(len(self.sessions))}
         self.batches: dict[str, dict[str, Any]] = {}
         self.enrich_calls: list[str] = []
+        self.config: dict[str, Any] = {
+            "storage": "filesystem", "enricher": "mock", "raw_retention_days": 30,
+            "cleanup_interval_seconds": 86400, "version": "0.0.0-fake",
+        }
+        self.config_fails = False
 
 
 def parse_multipart(content_type: str, body: bytes) -> list[tuple[str, str, bytes]]:
@@ -170,6 +175,7 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -201,11 +207,15 @@ class Handler(BaseHTTPRequestHandler):
         st = self.server.state
         if url.path in ("/healthz", "/readyz"):
             return self.send_json(200, {"status": "ok"})
-        if not parts or parts[0] not in ("batches", "sessions", "stats"):
+        if not parts or parts[0] not in ("batches", "sessions", "stats", "config"):
             return self.static(url.path)
         if not self.authed():
             return
         with st.lock:
+            if parts == ["config"]:
+                if st.config_fails:
+                    return self.send_json(500, {"detail": "config unavailable"})
+                return self.send_json(200, st.config)
             if parts[0] == "batches" and len(parts) == 2:
                 batch = st.batches.get(parts[1])
                 if not batch:
@@ -377,8 +387,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--token", default="dev-token")
+    ap.add_argument("--retention-days", type=int, default=30, help="0 = keep forever")
+    ap.add_argument("--enricher", default="mock", choices=["mock", "ollama"])
+    ap.add_argument("--storage", default="filesystem", choices=["filesystem", "s3"])
+    ap.add_argument("--no-config", action="store_true", help="make GET /config fail")
     args = ap.parse_args()
     srv = FakeServer(args.port, args.token)
+    srv.state.config.update(raw_retention_days=args.retention_days, enricher=args.enricher, storage=args.storage)
+    srv.state.config_fails = args.no_config
     print(f"fake session-lens API + UI on {srv.url} (token: {args.token})")
     srv.serve_forever()
 

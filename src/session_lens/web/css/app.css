@@ -207,3 +207,13 @@ figcaption { font-weight: 600; margin-bottom: .5rem; }
 .dialog::backdrop { background: rgb(0 0 0 / .45); }
 .dialog h2 { margin-top: 0; }
 .noscript { padding: 1rem; }
+
+/* Status bar: always visible, text carries the meaning */
+main { padding-bottom: 5rem; }
+.statusbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--border); padding: .35rem 1rem; font-size: .85rem; }
+.statusbar summary { cursor: pointer; font-weight: 600; max-width: 1200px; margin: 0 auto; }
+.statusbar[data-state="local"] summary { color: var(--good); }
+.statusbar[data-state="unverified"] summary { color: var(--warn); }
+.statusbar[data-state="unknown"] summary { color: var(--muted); font-weight: 500; }
+.statusbar details > p { max-width: 1200px; margin: .35rem auto 0; color: var(--muted); }
+.toasts { bottom: 3.5rem; }

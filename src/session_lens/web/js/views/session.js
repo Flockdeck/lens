@@ -1,5 +1,6 @@
 import { api, ApiError } from "../api.js";
-import { asList, fmtBytes, fmtDate, fmtDuration, fmtNum, fmtPct } from "../lib.js";
+import { getConfig, loadConfig } from "../config.js";
+import { asList, expiredText, fmtBytes, fmtDate, fmtDuration, fmtNum, fmtPct } from "../lib.js";
 import { h, clear, badge, skeleton, errorBox, empty, stat, toast, confirmDialog, withBusy } from "../ui.js";
 
 const EVENT_PAGE = 100;
@@ -10,12 +11,11 @@ export function render(root, { parts }) {
   const host = h("div");
   let rawGone = false; // set when the API says the raw recording has expired (410)
   let current = null;
-  const EXPIRED = "Raw recording expired after 30 days. Metrics and enrichment are kept.";
   root.append(host, skeleton(8));
 
   async function load() {
     try {
-      const s = await api.getSession(id, ctrl.signal);
+      const [s] = await Promise.all([api.getSession(id, ctrl.signal), loadConfig()]);
       root.querySelector(".skeleton")?.remove();
       draw(s);
     } catch (e) {
@@ -85,7 +85,7 @@ export function render(root, { parts }) {
         meta("Started", fmtDate(s.started_at)), meta("Ended", fmtDate(s.ended_at)),
         meta("Session", s.recording_session, true)),
       h("div", { class: "row" }, reenrich, del),
-      gone ? h("p", { id: "raw-expired", class: "muted small" }, EXPIRED) : null);
+      gone ? h("p", { id: "raw-expired", class: "muted small" }, expiredText(getConfig())) : null);
   }
 
   const meta = (k, v, mono) => (v ? h("div", null, h("dt", null, k), h("dd", { class: mono ? "mono wrap" : "" }, v)) : null);
@@ -162,7 +162,7 @@ export function render(root, { parts }) {
 
   function eventsSection(s) {
     if (rawGone || s.raw_available === false) {
-      return h("section", null, h("h2", null, "Raw events"), h("p", { class: "muted" }, EXPIRED));
+      return h("section", null, h("h2", null, "Raw events"), h("p", { class: "muted" }, expiredText(getConfig())));
     }
     const list = h("div", { class: "events" });
     const more = h("button", { type: "button", class: "btn" }, "Load more events");

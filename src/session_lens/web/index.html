@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
   <title>session-lens</title>
   <script src="js/theme.js"></script>
   <link rel="icon" href="data:,">
@@ -24,6 +25,13 @@
     </div>
   </header>
   <main id="main" tabindex="-1"></main>
+  <footer id="statusbar" class="statusbar" data-state="unknown">
+    <details>
+      <summary><span id="status-text">Status unavailable</span></summary>
+      <p>Nothing is uploaded. Recordings stay on this machine and are read only by this server.</p>
+      <p>How long raw recordings are kept is set on the server by RAW_RETENTION_DAYS (0 keeps them until you delete them).</p>
+    </details>
+  </footer>
   <noscript><p class="noscript">session-lens needs JavaScript.</p></noscript>
   <script type="module" src="js/main.js"></script>
 </body>
