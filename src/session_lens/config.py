@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     max_attempts: int = 4
     claim_timeout_seconds: int = 300
 
+    # Raw recordings live in an S3-compatible bucket (DigitalOcean Spaces in the cluster, MinIO
+    # locally and in CI). The bucket's lifecycle rule must expire objects after
+    # `raw_retention_days`; the app marks rows expired on the same schedule.
+    s3_endpoint_url: str = "http://127.0.0.1:9000"
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "session-lens"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_prefix: str = "recordings/"
     raw_retention_days: int = 30
     log_level: str = "INFO"
 
