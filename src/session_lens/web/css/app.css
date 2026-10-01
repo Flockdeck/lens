@@ -103,6 +103,8 @@ input[type="text"], input[type="password"], input[type="date"], select { font: i
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .file-list .table { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+/* On a phone the wrapper scrolls sideways instead of squeezing columns to a few characters each */
+.table-wrap > .table { min-width: 36rem; }
 .table th, .table td { padding: .55rem .75rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
 .table th.num, .table td.num { text-align: right; }
 .table thead th { font-size: .8rem; color: var(--muted); font-weight: 600; background: var(--surface-2); white-space: nowrap; }
