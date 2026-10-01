@@ -107,3 +107,11 @@ class Usage(BaseModel):
     input_tokens: int
     output_tokens: int
     enrichments: int
+
+
+class RuntimeConfig(BaseModel):
+    storage: str  # "filesystem" | "s3"
+    enricher: str  # "mock" | "ollama"
+    raw_retention_days: int  # 0 = keep raw recordings forever
+    cleanup_interval_seconds: int | None
+    version: str

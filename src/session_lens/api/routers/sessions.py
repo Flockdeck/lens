@@ -129,8 +129,8 @@ async def _fetch_raw(db: AsyncSession, store_provider: StoreProvider, raw_id: in
         data: bytes = await store.get(found.object_key)
         return data
     except RecordingExpired as exc:
-        # The object is gone (lifecycle rule ran before `cleanup`): record it in a fresh
-        # transaction so the API reports raw_available=false from now on.
+        # The file is gone (removed outside the app, or expired before the reconcile ran):
+        # record it in a fresh transaction so raw_available is false from now on.
         await db.execute(
             update(RawRecording)
             .where(RawRecording.id == raw_id, RawRecording.expired_at.is_(None))
