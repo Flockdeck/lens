@@ -84,7 +84,7 @@ def build_enricher(settings: Settings) -> Enricher: ...   # mock or anthropic
 
 ## storage (owned by the worker component)
 
-Recordings live in an S3-compatible bucket: DigitalOcean Spaces in the cluster, MinIO in docker
+Recordings live in an S3-compatible bucket: DigitalOcean Spaces in the cluster, SeaweedFS in docker
 compose and in CI. The database keeps **one `raw_recordings` row per file** (hash, size,
 `object_key`, `created_at`, `expired_at`); the bytes are fetched whole when needed (at most
 16 MiB). Use `aioboto3` with `endpoint_url`, `region`, bucket and keys from `Settings`.
@@ -99,7 +99,7 @@ class RecordingStore(Protocol):
     async def delete(self, key: str) -> None: ...        # idempotent
     async def ping(self) -> None: ...                    # for /readyz; raises if unreachable
 
-def build_store(settings: Settings) -> RecordingStore: ...   # S3 (Spaces / MinIO)
+def build_store(settings: Settings) -> RecordingStore: ...   # S3 (Spaces / SeaweedFS)
 ```
 
 Object keys are `{s3_prefix}YYYY/MM/<uuid4>.jsonl`, one object per uploaded file, never shared
@@ -174,7 +174,7 @@ between rows. Helpers in `worker/queue.py` (all take the store explicitly):
 
 - Python 3.12, fully typed (`mypy --strict` clean), `ruff` clean, tests with `pytest`.
 - Tests that need a database use MySQL via `DATABASE_URL` (docker compose), never SQLite. Tests
-  that need the object store use MinIO from docker compose (`S3_ENDPOINT_URL`), never a mock of
+  that need the object store use SeaweedFS from docker compose (`S3_ENDPOINT_URL`), never a mock of
   the S3 API; unit tests of other components may use an in-memory `RecordingStore` fake.
 - Logs carry ids and counts only. Never log recording content, prompts or messages.
 - Commit on your own branch with clear messages. Do not push, merge, or touch other

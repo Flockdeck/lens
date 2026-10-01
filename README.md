@@ -134,7 +134,7 @@ from the same origin.
   whole is also bounded (file count and total size), and the HAProxy ingress body limit is
   set to match. The API validates each file and writes it to the object store.
 - **Raw storage.** The uploaded file goes to an S3-compatible bucket (DigitalOcean Spaces in
-  the cluster, MinIO locally and in CI) through a small `RecordingStore` interface. MySQL keeps
+  the cluster, SeaweedFS locally and in CI) through a small `RecordingStore` interface. MySQL keeps
   one `raw_recordings` row per file (hash, size, object key, created and expired times), and
   the worker and the events view fetch the file whole when they need it, since it is at most
   16 MiB. The object is written before the row, so a row never points at a missing file.
@@ -160,7 +160,7 @@ from the same origin.
 - **Storage.** SQLAlchemy 2.0 with Alembic migrations, on MySQL 8 everywhere: locally, in CI
   and in the cluster (the shared managed MySQL that terrawost provisions). There is no SQLite
   path, so dev, CI and production share one dialect, one driver and one set of migrations.
-  A `docker-compose.yml` starts a local MySQL and a MinIO (S3-compatible) with the same
+  A `docker-compose.yml` starts a local MySQL and a SeaweedFS (S3-compatible) object store with the same
   30-day lifecycle rule on its bucket, and `DATABASE_URL` and `S3_*` point the app at them.
   Tables: batches, batch items, sessions, metrics, enrichments.
 - **Privacy.** Recordings are sensitive. The service logs ids and counts, never content.
@@ -174,7 +174,7 @@ depends on.
 **GitHub Actions** (`.github/workflows/ci.yaml`):
 
 - On every push and pull request: lint and type-check (ruff, mypy), then the test suite against
-  a MySQL 8 service container and a MinIO container (started with `docker run`, since service
+  a MySQL 8 service container and a SeaweedFS container (started with `docker run`, since service
   containers cannot pass `server /data`), the same major version and driver as the cluster and the local
   compose file.
 - On a `v*` tag, after tests pass: build the Docker image and push

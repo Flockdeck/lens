@@ -34,7 +34,7 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
 - **Submission:** `POST /batches` multipart, multiple `.jsonl` files; per-file reject reasons,
   `202` + batch id; `422` if none accepted. Size caps per file/request, matched on ingress.
 - **Raw storage:** the uploaded file goes to an S3-compatible bucket (DigitalOcean Spaces in the
-  cluster, MinIO locally and in CI) through the API; MySQL keeps one `raw_recordings` row per
+  cluster, SeaweedFS locally and in CI) through the API; MySQL keeps one `raw_recordings` row per
   file (hash, size, object key, created/expired times). Files (at most 16 MiB) are fetched whole
   when needed.
 - **Retention:** raw recordings live 30 days. A bucket lifecycle rule (terrawost) expires the

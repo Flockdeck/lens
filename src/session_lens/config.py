@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # Set the pod's terminationGracePeriodSeconds above it.
     shutdown_grace_seconds: float = 25.0
 
-    # Raw recordings live in an S3-compatible bucket (DigitalOcean Spaces in the cluster, MinIO
+    # Raw recordings live in an S3-compatible bucket (DigitalOcean Spaces in the cluster, SeaweedFS
     # locally and in CI). The bucket's lifecycle rule must expire objects after
     # `raw_retention_days`; the app marks rows expired on the same schedule.
     s3_endpoint_url: str = "http://127.0.0.1:9000"
