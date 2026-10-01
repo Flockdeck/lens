@@ -89,9 +89,11 @@ main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 .btn:disabled, .btn[aria-disabled] { opacity: .5; cursor: not-allowed; }
 .btn[aria-busy="true"] { cursor: progress; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
-.btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+/* Same specificity as the generic .btn:hover rule above, and later, so primary and danger keep their fill */
+.btn-primary:hover:not(:disabled):not([aria-disabled]) { background: var(--accent); filter: brightness(1.08); }
 .btn-quiet { border-color: transparent; background: transparent; color: var(--muted); }
 .btn-danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn-danger:hover:not(:disabled):not([aria-disabled]) { background: var(--bad); filter: brightness(1.08); }
 .btn-danger-quiet { color: var(--bad); }
 .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); font-weight: 600; }
 .seg-control { display: flex; gap: .25rem; margin-bottom: 1rem; }
