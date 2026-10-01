@@ -8,6 +8,9 @@ export function render(root, { parts }) {
   const id = parts[1];
   const ctrl = new AbortController();
   const host = h("div");
+  let rawGone = false; // set when the API says the raw recording has expired (410)
+  let current = null;
+  const EXPIRED = "Raw recording expired after 30 days. Metrics and enrichment are kept.";
   root.append(host, skeleton(8));
 
   async function load() {
@@ -27,6 +30,7 @@ export function render(root, { parts }) {
   }
 
   function draw(s) {
+    current = s;
     const enr = s.enrichment || null;
     const m = s.metrics || {};
     clear(host).append(
@@ -41,13 +45,19 @@ export function render(root, { parts }) {
   }
 
   function header(s, enr) {
-    const reenrich = h("button", { type: "button", class: "btn" }, "Re-enrich");
+    const gone = rawGone || s.raw_available === false;
+    const reenrich = h("button", {
+      type: "button", class: "btn", disabled: gone, "aria-describedby": gone ? "raw-expired" : null,
+    }, "Re-enrich");
     reenrich.addEventListener("click", () => withBusy(reenrich, async () => {
       try {
         await api.enrichSession(id);
         toast("Re-enriched");
         await load();
-      } catch (e) { toast(e.message, "error"); }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 410) { rawGone = true; draw(current); return; }
+        toast(e.message, "error");
+      }
     }));
     const del = h("button", { type: "button", class: "btn btn-danger-quiet" }, "Delete session");
     del.addEventListener("click", async () => {
@@ -74,7 +84,8 @@ export function render(root, { parts }) {
         meta("Agent", s.agent), meta("Model", s.model), meta("Pane", s.pane),
         meta("Started", fmtDate(s.started_at)), meta("Ended", fmtDate(s.ended_at)),
         meta("Session", s.recording_session, true)),
-      h("div", { class: "row" }, reenrich, del));
+      h("div", { class: "row" }, reenrich, del),
+      gone ? h("p", { id: "raw-expired", class: "muted small" }, EXPIRED) : null);
   }
 
   const meta = (k, v, mono) => (v ? h("div", null, h("dt", null, k), h("dd", { class: mono ? "mono wrap" : "" }, v)) : null);
@@ -149,7 +160,10 @@ export function render(root, { parts }) {
       list.length ? h("ul", { class: "plain-list" }, list.map((w) => h("li", null, w))) : null);
   }
 
-  function eventsSection() {
+  function eventsSection(s) {
+    if (rawGone || s.raw_available === false) {
+      return h("section", null, h("h2", null, "Raw events"), h("p", { class: "muted" }, EXPIRED));
+    }
     const list = h("div", { class: "events" });
     const more = h("button", { type: "button", class: "btn" }, "Load more events");
     const status = h("p", { class: "muted", "aria-live": "polite" });
@@ -166,15 +180,17 @@ export function render(root, { parts }) {
             list.append(eventRow(ev));
             if (typeof ev.seq === "number") afterSeq = Math.max(afterSeq, ev.seq);
           }
+          // The API returns {items, next_after_seq}; null means this was the last page.
+          const next = data && !Array.isArray(data) ? data.next_after_seq : undefined;
+          if (typeof next === "number") afterSeq = next;
           count += evs.length;
           status.textContent = `${count} event${count === 1 ? "" : "s"} loaded`;
-          more.hidden = evs.length < EVENT_PAGE;
+          more.hidden = next === null || (next === undefined && evs.length < EVENT_PAGE);
           if (!count) status.textContent = "No events in this recording.";
         } catch (e) {
           if (e.name === "AbortError") return;
-          status.textContent = e instanceof ApiError && e.status === 410
-            ? "The raw recording has been deleted (retention). Metrics and enrichment are kept."
-            : e.message;
+          if (e instanceof ApiError && e.status === 410) { rawGone = true; draw(current); return; }
+          status.textContent = e.message;
           more.hidden = true;
         }
       });

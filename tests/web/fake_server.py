@@ -9,7 +9,8 @@ API, so the UI can be developed and tested without the real API, worker or MySQL
 Magic behaviour for exercising the UI:
 - batches advance on every GET (queued -> running -> done); the file named `bad*.jsonl` fails
 - uploads: non-.jsonl, empty and files over 17 MiB are rejected per file; none accepted -> 422
-- the session with the highest id has its raw recording deleted (events -> 410)
+- the session with the highest id has an expired raw recording: `raw_available` is false and
+  events / enrich return 410
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ def make_sessions(n: int = 60) -> dict[str, dict[str, Any]]:
         errors = (i * 3) % 9
         out[sid] = {
             "id": sid,
+            "raw_available": sid != str(n),
             "recording_session": f"rec-{i:04d}-{uuid.uuid5(uuid.NAMESPACE_DNS, sid).hex[:8]}",
             "project": PROJECTS[i % len(PROJECTS)],
             "agent": AGENTS[i % len(AGENTS)],
@@ -221,7 +223,10 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[1] in st.deleted_raw:
                     return self.send_json(410, {"detail": "Raw recording deleted"})
                 after, limit = int(q.get("after_seq", 0)), int(q.get("limit", 200))
-                return self.send_json(200, [e for e in st.events if e["seq"] > after][:limit])
+                rest = [e for e in st.events if e["seq"] > after]
+                page = rest[:limit]
+                more = len(rest) > limit
+                return self.send_json(200, {"items": page, "next_after_seq": page[-1]["seq"] if more else None})
             if parts == ["stats", "trends"]:
                 return self.send_json(200, self.trends(q))
             if parts == ["stats", "compare"]:
@@ -259,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "sessions" and parts[2] == "enrich":
                 if parts[1] not in st.sessions:
                     return self.send_json(404, {"detail": "Session not found"})
+                if parts[1] in st.deleted_raw:
+                    return self.send_json(410, {"detail": "Raw recording expired"})
                 st.enrich_calls.append(parts[1])
                 return self.send_json(200, st.sessions[parts[1]])
         self.send_json(404, {"detail": "Not Found"})
@@ -311,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
             rows = [r for r in rows if r["started_at"][:10] <= q["to"][:10]]
         rows.sort(key=lambda r: r["started_at"], reverse=True)
         limit, offset = int(q.get("limit", 50)), int(q.get("offset", 0))
-        keys = ("id", "recording_session", "project", "agent", "model", "pane", "started_at", "ended_at",
+        keys = ("id", "raw_available", "recording_session", "project", "agent", "model", "pane", "started_at", "ended_at",
                 "completeness", "category", "outcome", "frustration", "summary", "duration_seconds")
         return {"total": len(rows), "items": [{k: r[k] for k in keys} for r in rows[offset:offset + limit]]}
 

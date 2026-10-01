@@ -106,8 +106,16 @@ def test_session_detail_events_enrich_delete(server: FakeServer) -> None:
     _, s = call(server, "GET", "/sessions/4")
     assert {"metrics", "risky_actions", "files_touched", "warnings", "enrichment"} <= set(s)
     _, evs = call(server, "GET", "/sessions/4/events?after_seq=100&limit=50")
-    assert [e["seq"] for e in evs][:2] == [101, 102] and len(evs) == 50
+    assert [e["seq"] for e in evs["items"]][:2] == [101, 102] and len(evs["items"]) == 50
+    assert evs["next_after_seq"] == 150
+    _, last = call(server, "GET", "/sessions/4/events?after_seq=300&limit=100")
+    assert len(last["items"]) == 50 and last["next_after_seq"] is None
+    assert s["raw_available"] is True
+    assert call(server, "GET", "/sessions/60")[1]["raw_available"] is False
     assert call(server, "GET", "/sessions/60/events")[0] == 410
+    assert call(server, "POST", "/sessions/60/enrich")[0] == 410
+    _, listing = call(server, "GET", "/sessions?limit=2")
+    assert [i["raw_available"] for i in listing["items"]] == [False, True]  # newest is expired
     assert call(server, "POST", "/sessions/4/enrich")[0] == 200
     assert call(server, "DELETE", "/sessions/4")[0] == 204
     assert call(server, "GET", "/sessions/4")[0] == 404
