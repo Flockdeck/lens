@@ -7,11 +7,21 @@ import enum
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
-def _now() -> datetime:
+def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)  # stored as naive UTC
 
 
@@ -36,10 +46,11 @@ class ItemStatus(enum.StrEnum):
 
 class Batch(Base):
     __tablename__ = "batches"
+    __table_args__ = (Index("ix_batches_created_at_status", "created_at", "status"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.queued)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     items: Mapped[list[BatchItem]] = relationship(back_populates="batch", cascade="all, delete-orphan")
 
 
@@ -54,17 +65,18 @@ class RawRecording(Base):
     content_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256 hex of the bytes
     size_bytes: Mapped[int] = mapped_column(Integer)
     object_key: Mapped[str] = mapped_column(String(255), unique=True)  # recordings/YYYY/MM/<uuid>.jsonl
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
 
 class BatchItem(Base):
     __tablename__ = "batch_items"
+    __table_args__ = (Index("ix_batch_items_status_not_before", "status", "not_before"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id", ondelete="CASCADE"), index=True)
     filename: Mapped[str] = mapped_column(String(255))
-    status: Mapped[ItemStatus] = mapped_column(Enum(ItemStatus), default=ItemStatus.queued, index=True)
+    status: Mapped[ItemStatus] = mapped_column(Enum(ItemStatus), default=ItemStatus.queued)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     not_before: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # backoff
     locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # claim time
@@ -72,19 +84,20 @@ class BatchItem(Base):
     error_retryable: Mapped[bool | None] = mapped_column(nullable=True)
     raw_id: Mapped[int | None] = mapped_column(ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     batch: Mapped[Batch] = relationship(back_populates="items")
 
 
 class Session(Base):
-    """One recording session. Idempotency key: (recording_session, content_hash)."""
+    """One row per recording session. `content_hash` is the hash of the content it was last
+    computed from; a longer upload of the same session supersedes it in place."""
 
     __tablename__ = "sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    recording_session: Mapped[str] = mapped_column(String(128), index=True)  # `session` in the file
+    recording_session: Mapped[str] = mapped_column(String(128), unique=True)  # `session` in the file
     content_hash: Mapped[str] = mapped_column(String(64))
     project: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     agent: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
@@ -99,7 +112,7 @@ class Session(Base):
     files_touched: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {read, edited, commands}
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     raw_id: Mapped[int | None] = mapped_column(ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     enrichment: Mapped[Enrichment | None] = relationship(back_populates="session", cascade="all, delete-orphan")
 
@@ -120,6 +133,6 @@ class Enrichment(Base):
     risk_notes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     session: Mapped[Session] = relationship(back_populates="enrichment")

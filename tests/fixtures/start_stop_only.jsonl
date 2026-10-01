@@ -1,0 +1,2 @@
+{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"codex","type":"recording_started","text":"turned on"}
+{"v":1,"seq":2,"time":"2026-10-01T10:45:30.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"codex","type":"recording_stopped","text":"turned off"}

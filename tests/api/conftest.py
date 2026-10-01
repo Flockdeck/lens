@@ -1,15 +1,12 @@
 """API test fixtures: a throwaway database on the MySQL server named by DATABASE_URL."""
 
-import asyncio
-import secrets
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -19,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
 
 from session_lens.api.app import create_app
 from session_lens.api.deps import get_queue, get_store_provider
-from session_lens.config import Settings, get_settings
+from session_lens.config import Settings
 from session_lens.db.models import Base
 from tests.api.standins import FakeQueue, InMemoryStore, importable, install_stubs
 
@@ -27,33 +24,6 @@ TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 install_stubs()
-
-
-@pytest.fixture(scope="session")
-def database_url() -> Iterator[str]:
-    """Create `<db>_test_<rand>` on the server, build the schema, drop it afterwards."""
-    base = make_url(get_settings().database_url)
-    name = f"{base.database}_test_{secrets.token_hex(4)}"
-    test_url = base.set(database=name).render_as_string(hide_password=False)
-
-    async def run(sql: str | None, url: str | None) -> None:
-        engine = create_async_engine(
-            base.set(database=None).render_as_string(hide_password=False)
-            if sql
-            else (url or test_url),
-            isolation_level="AUTOCOMMIT" if sql else None,
-        )
-        async with engine.begin() as conn:
-            if sql:
-                await conn.execute(text(sql))
-            else:
-                await conn.run_sync(Base.metadata.create_all)
-        await engine.dispose()
-
-    asyncio.run(run(f"CREATE DATABASE `{name}` CHARACTER SET utf8mb4", None))
-    asyncio.run(run(None, test_url))
-    yield test_url
-    asyncio.run(run(f"DROP DATABASE `{name}`", None))
 
 
 @pytest_asyncio.fixture
