@@ -1,0 +1,3 @@
+# Keep copied Flockdeck assets byte-identical to their source on every platform
+*.svg -text
+*.woff2 binary
