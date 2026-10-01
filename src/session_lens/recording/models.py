@@ -30,6 +30,12 @@ RECORDER_TYPES = frozenset({"recording_started", "recording_stopped", "recording
 
 _EXTRA_FRACTION = re.compile(r"(\.\d{6})\d+")
 
+_LOOSE_STR_FIELDS = (
+    "pane_name", "project", "agent", "model", "conversation", "subagent", "text", "source",
+    "reason", "tool", "tool_use_id", "output", "outcome", "status", "previous", "detail",
+)
+_LOOSE_BOOL_FIELDS = ("redacted", "is_error", "interrupted", "inferred")
+
 
 def parse_time(value: str) -> datetime:
     """Parse RFC 3339 with up to nanosecond precision (Python keeps microseconds)."""
@@ -40,12 +46,18 @@ def parse_time(value: str) -> datetime:
 
 
 class Event(BaseModel):
-    """One parsed line. The envelope is typed; unknown fields are kept as extras."""
+    """One parsed line. The envelope is typed; unknown fields are kept as extras.
+
+    The required envelope (`v`, `seq`, `time`, `session`, `pane`, `type`) is strict: a line
+    without it, or with it in another shape, is malformed. Every other field is read loosely: if
+    a later release gives one a different shape (say `text` as an object), the field reads as
+    None and the line is kept as an event of unknown shape, not dropped.
+    """
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    v: int
-    seq: int
+    v: int = Field(strict=True)
+    seq: int = Field(strict=True)
     time: datetime
     session: str
     pane: str
@@ -79,9 +91,30 @@ class Event(BaseModel):
     @field_validator("time", mode="before")
     @classmethod
     def _parse_time(cls, value: Any) -> Any:
+        # Only RFC 3339 text. Pydantic would otherwise read an integer as a Unix timestamp.
         if isinstance(value, str):
             return parse_time(value)
-        return value
+        raise ValueError("time must be an RFC 3339 string")
+
+    @field_validator(*_LOOSE_STR_FIELDS, mode="before")
+    @classmethod
+    def _loose_str(cls, value: Any) -> Any:
+        return value if isinstance(value, str) else None
+
+    @field_validator(*_LOOSE_BOOL_FIELDS, mode="before")
+    @classmethod
+    def _loose_bool(cls, value: Any) -> Any:
+        return value if isinstance(value, bool) else None
+
+    @field_validator("clipped", mode="before")
+    @classmethod
+    def _loose_clipped(cls, value: Any) -> Any:
+        if isinstance(value, dict) and all(
+            isinstance(k, str) and isinstance(n, int) and not isinstance(n, bool)
+            for k, n in value.items()
+        ):
+            return value
+        return None
 
 
 class PermissionStats(BaseModel):
@@ -118,9 +151,14 @@ class RiskyAction(BaseModel):
 
 
 class FilesTouched(BaseModel):
+    """The lists keep the latest entries up to a cap; the totals are counted before the cap."""
+
     read: list[str] = Field(default_factory=list)
     edited: list[str] = Field(default_factory=list)
     commands: list[str] = Field(default_factory=list)
+    read_total: int = 0
+    edited_total: int = 0
+    commands_total: int = 0
 
 
 class DigestMessage(BaseModel):

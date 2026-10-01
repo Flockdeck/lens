@@ -83,6 +83,6 @@ def build_digest(
         omitted_failures=len(failing) - len(shown_failures),
         risky_actions=ranked_risks[:MAX_RISKS],
         files_edited=files.edited[:MAX_FILES],
-        files_read_count=len(files.read),
-        commands_count=len(files.commands),
+        files_read_count=files.read_total,
+        commands_count=files.commands_total,
     )

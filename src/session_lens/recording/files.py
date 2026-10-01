@@ -23,7 +23,8 @@ def extract_files_touched(events: list[Event]) -> FilesTouched:
     """Distinct paths in first-seen order, and every Bash command in order.
 
     A call whose result reports an error is left out of the files lists: it did not touch the
-    file. Commands are kept regardless, since they were run (or tried) either way.
+    file. Commands are kept regardless, since they were run (or tried) either way. The lists
+    keep the latest MAX_ITEMS entries; the `*_total` fields count everything.
     """
     failed = {
         e.tool_use_id for e in events if e.type == "tool_result" and e.is_error and e.tool_use_id
@@ -48,5 +49,10 @@ def extract_files_touched(events: list[Event]) -> FilesTouched:
         elif e.tool in EDIT_TOOLS:
             edited[path] = None
     return FilesTouched(
-        read=list(read)[:MAX_ITEMS], edited=list(edited)[:MAX_ITEMS], commands=commands[:MAX_ITEMS]
+        read=list(read)[-MAX_ITEMS:],
+        edited=list(edited)[-MAX_ITEMS:],
+        commands=commands[-MAX_ITEMS:],
+        read_total=len(read),
+        edited_total=len(edited),
+        commands_total=len(commands),
     )
