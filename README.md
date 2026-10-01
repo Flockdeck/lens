@@ -134,10 +134,12 @@ a filterable session list, a session page (metrics, enrichment, risky actions, f
 event view), trends over time, and agent and model comparisons. It has no private endpoints, so
 anything the UI can do a script can do.
 
-The look is Flockdeck's colour system (`web/css/flockdeck-color.css`, copied from Flockdeck's
-`design/color.css`): one deepened-cyan accent, neutral surfaces, and status colour only for states the
-app knows. As in Flockdeck, running is the accent (never green), and every status carries a glyph and
-a word as well as a colour. Tests keep it that way (`tests/web/test_design.py`).
+The look is Flockdeck's, as flockdeck.ai and the Flockdeck phone client wear it: dark only, Archivo and
+JetBrains Mono served from the app itself (no font service is ever asked), their tokens and accent wash,
+44px tap targets, and their rule that green, amber and red mean only what they mean in a pane header. Every
+status is a glyph and a word as well as a colour, and running is the accent, never green. The tokens, fonts
+and mark are copied from `flockdeck-remote` (`web/app`); `tests/web/test_design.py` keeps the UI to those
+rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source.
 
 ### Architecture
 
