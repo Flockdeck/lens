@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-lens-api
+  namespace: session-lens
+  labels:
+    app: session-lens
+    component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: session-lens
+      component: api
+  template:
+    metadata:
+      labels:
+        app: session-lens
+        component: api
+    spec:
+      serviceAccountName: session-lens
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Schema migrations run here, before the API starts. Concurrent runs are
+        # serialised by Alembic's version table, so extra replicas are safe.
+        - name: migrate
+          image: "ghcr.io/jmwri/session-lens:0.0.1" # {"$imagepolicy": "flux-system:session-lens"}
+          imagePullPolicy: IfNotPresent
+          command: ["session-lens", "migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: databaseUrl}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: api
+          image: "ghcr.io/jmwri/session-lens:0.0.1" # {"$imagepolicy": "flux-system:session-lens"}
+          imagePullPolicy: IfNotPresent
+          command: ["session-lens", "api"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: databaseUrl}
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: apiToken}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: anthropicApiKey}
+            - name: ENRICHER
+              value: anthropic
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 4
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30

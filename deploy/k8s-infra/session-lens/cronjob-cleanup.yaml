@@ -1,0 +1,55 @@
+# Deletes raw recordings older than RAW_RETENTION_DAYS (default 30); metrics and
+# enrichments are kept.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: session-lens-cleanup
+  namespace: session-lens
+  labels:
+    app: session-lens
+    component: cleanup
+spec:
+  schedule: "17 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: session-lens
+            component: cleanup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: session-lens
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: cleanup
+              image: "ghcr.io/jmwri/session-lens:0.0.1" # {"$imagepolicy": "flux-system:session-lens"}
+              imagePullPolicy: IfNotPresent
+              command: ["session-lens", "cleanup"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: {name: session-lens-secret, key: databaseUrl}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: tmp
+              emptyDir: {}

@@ -1,0 +1,47 @@
+# `docker compose up -d mysql` is enough for development and tests.
+# `docker compose up --build` also runs the api and worker from the Dockerfile.
+services:
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: session_lens
+      MYSQL_USER: session_lens
+      MYSQL_PASSWORD: session_lens
+    ports: ["3306:3306"]
+    volumes: [mysql-data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build: .
+    command: ["session-lens", "migrate"]
+    environment: &app-env
+      DATABASE_URL: mysql+asyncmy://session_lens:session_lens@mysql:3306/session_lens?charset=utf8mb4
+      API_TOKEN: ${API_TOKEN:-dev-token}
+      ENRICHER: ${ENRICHER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      mysql: {condition: service_healthy}
+    restart: "no"
+
+  api:
+    build: .
+    command: ["session-lens", "api"]
+    environment: *app-env
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  worker:
+    build: .
+    command: ["session-lens", "worker"]
+    environment: *app-env
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+volumes:
+  mysql-data:
