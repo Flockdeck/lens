@@ -33,7 +33,7 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
   retryable vs permanent errors, idempotency on session id + content hash.
 - **Submission:** `POST /batches` multipart, multiple `.jsonl` files; per-file reject reasons,
   `202` + batch id; `422` if none accepted. Size caps per file/request, matched on ingress.
-- **Raw storage:** compressed (zstd) LONGBLOB in its own MySQL table.
+- **Raw storage:** one MySQL row per recording line (`recording_lines`: raw_id, line_no, text), in file order. No blobs, so no large `max_allowed_packet`; the raw event view pages by `line_no`.
 - **Retention:** raw recordings deleted after 30 days by a CronJob; metrics/enrichment kept.
 - **UI (no-build ES modules, served by FastAPI):** submit (multi-select + drag-drop), batch
   progress by **polling**, session list with filters, session detail (metrics, enrichment,
@@ -58,7 +58,7 @@ below, UI screens, observability, model default. Replace `<app>` placeholders.
 
 API additions to document:
 - `POST /batches/{id}/retry` (failed items), `POST /batches/{id}/cancel` (queued items)
-- `DELETE /sessions/{id}` (session, raw blob, enrichment)
+- `DELETE /sessions/{id}` (session, raw recording and its lines, enrichment)
 - `GET /sessions/{id}/events?after_seq=&limit=` (raw event view)
 - `POST /sessions/{id}/enrich` (re-enrich, overwrites)
 - `GET /stats/trends?project=&interval=day|week`, `GET /stats/compare?by=agent|model`
