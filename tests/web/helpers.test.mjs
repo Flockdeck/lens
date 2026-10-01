@@ -1,9 +1,8 @@
-// Unit tests for the pure helpers in src/session_lens/web/js/lib.js. Run: node tests/web/helpers.test.mjs
+// Unit tests for the pure helpers in src/session_lens/web/js/lib.js.
+// Run from anywhere: node --test tests/web/helpers.test.mjs   (or plain: node tests/web/helpers.test.mjs)
 import assert from "node:assert/strict";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
 
-const lib = await import(pathToFileURL(path.resolve("src/session_lens/web/js/lib.js")).href);
+const lib = await import(new URL("../../src/session_lens/web/js/lib.js", import.meta.url).href);
 
 assert.equal(lib.fmtBytes(512), "512 B");
 assert.equal(lib.fmtBytes(1536), "1.5 KiB");

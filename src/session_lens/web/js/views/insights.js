@@ -16,15 +16,20 @@ export function render(root) {
   const compareBox = h("section", null, h("h2", null, "Compare"));
   root.append(h("header", { class: "page-head" }, h("h1", null, "Insights")), usageBox, trendBox, compareBox);
 
-  const guard = (box, title, fn) => async () => {
+  const guard = (box, title, fn) => {
+    let latest = 0; // a slow older response must not overwrite a newer one
+    return async () => {
+    const mine = ++latest;
     clear(box).append(h("h2", null, title), skeleton(4));
     try {
       const content = await fn();
+      if (mine !== latest) return;
       clear(box).append(h("h2", null, title), ...[].concat(content));
     } catch (e) {
-      if (e.name === "AbortError") return;
+      if (e.name === "AbortError" || mine !== latest) return;
       clear(box).append(h("h2", null, title), errorBox(e.message, loadAll[title]));
     }
+    };
   };
 
   const loadUsage = guard(usageBox, "Token usage", async () => {
@@ -78,7 +83,7 @@ export function render(root) {
       }, `By ${v}`)));
     if (!rows.length) return [controls, empty("Nothing to compare yet")];
     const maxRate = Math.max(0.0001, ...rows.flatMap((r) => [r.tool_error_rate || 0, r.permission_denial_rate || 0]));
-    const rate = (v) => h("td", { class: "rate" }, h("span", { class: "rate-bar", style: `width:${((v || 0) / maxRate) * 100}%` }), h("span", null, fmtPct(v)));
+    const rate = (v) => h("td", { class: "rate" }, h("span", { class: "rate-bar", style: { width: `${((v || 0) / maxRate) * 100}%` } }), h("span", null, fmtPct(v)));
     return [controls, h("div", { class: "table-wrap" }, h("table", { class: "table" },
       h("thead", null, h("tr", null, [by, "Sessions", "Done", "Abandoned", "Stuck", "Tool error rate", "Permission denial rate", "Avg frustration"].map((t) => h("th", { scope: "col" }, t)))),
       h("tbody", null, rows.map((r) => h("tr", null,

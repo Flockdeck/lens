@@ -6,6 +6,7 @@ export function h(tag, attrs, ...children) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null || v === false) continue;
     if (k === "class") node.className = v;
+    else if (k === "style" && typeof v === "object") Object.assign(node.style, v); // CSSOM, CSP-safe
     else if (k === "dataset") Object.assign(node.dataset, v);
     else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
     else if (v === true) node.setAttribute(k, "");

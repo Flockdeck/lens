@@ -14,8 +14,9 @@ export function render(root, { query }) {
   const ctrl = new AbortController();
   const page = Math.max(1, Number(query.page) || 1);
 
-  const field = (name, label, control) =>
-    h("div", { class: "field" }, h("label", { for: `f-${name}` }, label), control);
+  const field = (name, label, control, help) =>
+    h("div", { class: "field" }, h("label", { for: `f-${name}` }, label), control,
+      help ? h("span", { id: `h-${name}`, class: "muted small" }, help) : null);
   const text = (name, label) => {
     const list = h("datalist", { id: `dl-${name}` }, [...seen[name]].sort().map((v) => h("option", { value: v })));
     return field(name, label, h("div", null,
@@ -26,7 +27,9 @@ export function render(root, { query }) {
       h("option", { value: "" }, "Any"),
       options.map((o) => h("option", { value: o, selected: query[name] === o }, o))));
   const date = (name, label) =>
-    field(name, label, h("input", { id: `f-${name}`, name, type: "date", value: query[name] || "" }));
+    field(name, label, h("input", {
+      id: `f-${name}`, name, type: "date", value: query[name] || "", "aria-describedby": `h-${name}`,
+    }), "Inclusive, UTC day");
 
   const form = h("form", { class: "filters", role: "search", "aria-label": "Filter sessions" },
     text("project", "Project"), text("agent", "Agent"), text("model", "Model"),
@@ -62,6 +65,10 @@ export function render(root, { query }) {
       const data = await api.listSessions({ ...params, limit: PAGE, offset: (page - 1) * PAGE }, ctrl.signal);
       root.querySelector(".skeleton")?.remove();
       for (const s of data.items) for (const k of Object.keys(seen)) if (s[k]) seen[k].add(s[k]);
+      for (const k of Object.keys(seen)) {
+        const dl = form.querySelector(`#dl-${k}`);
+        if (dl) dl.replaceChildren(...[...seen[k]].sort().map((v) => h("option", { value: v })));
+      }
       drawResults(data);
     } catch (e) {
       if (e.name === "AbortError") return;
@@ -72,12 +79,6 @@ export function render(root, { query }) {
 
   function drawResults({ total, items }) {
     clear(results);
-    if (!items.length) {
-      results.append(empty(total ? "No sessions on this page" : "No sessions match",
-        total ? "Go back to an earlier page." : "Adjust the filters, or submit recordings to get started.",
-        h("a", { class: "btn", href: "#/submit" }, "Submit recordings")));
-      return;
-    }
     const pages = Math.max(1, Math.ceil(total / PAGE));
     const link = (p, label, disabled) => {
       const q = { ...Object.fromEntries(FILTERS.filter((k) => query[k]).map((k) => [k, query[k]])), page: p };
@@ -87,6 +88,14 @@ export function render(root, { query }) {
         ? h("span", { class: "btn", "aria-disabled": "true" }, label)
         : h("a", { class: "btn", href: `#/sessions${sp.toString() ? `?${sp}` : ""}` }, label);
     };
+    if (!items.length) {
+      results.append(total
+        ? empty("No sessions on this page", `There are ${fmtNum(total)} sessions in ${pages} page${pages === 1 ? "" : "s"}.`,
+          h("div", { class: "row" }, link(1, "First page", false), link(pages, "Last page", false)))
+        : empty("No sessions match", "Adjust the filters, or submit recordings to get started.",
+          h("a", { class: "btn", href: "#/submit" }, "Submit recordings")));
+      return;
+    }
     results.append(
       h("p", { class: "muted" }, `${fmtNum(total)} session${total === 1 ? "" : "s"}`),
       h("div", { class: "table-wrap" }, h("table", { class: "table table-rows" },

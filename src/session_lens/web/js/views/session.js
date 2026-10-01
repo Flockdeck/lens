@@ -106,7 +106,7 @@ export function render(root, { parts }) {
     const max = Math.max(...entries.map(([, v]) => v));
     return h("ul", { class: "bars" }, entries.map(([k, v]) => h("li", null,
       h("span", { class: "bar-label" }, k),
-      h("span", { class: "bar", style: `width:${Math.max(2, (v / max) * 100)}%` }),
+      h("span", { class: "bar", style: { width: `${Math.max(2, (v / max) * 100)}%` } }),
       h("span", { class: "bar-value" }, fmt(v)))));
   }
 

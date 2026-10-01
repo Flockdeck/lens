@@ -11,6 +11,8 @@ export function render(root, { parts }) {
   const ctrl = new AbortController();
   let timer = null;
   let stopped = false;
+  let inflight = false; // one request and one timer chain at a time
+  let again = false;
 
   let rejected = [];
   try { rejected = JSON.parse(sessionStorage.getItem(REJECTED_KEY + id) || "[]"); } catch { /* ignore */ }
@@ -39,7 +41,7 @@ export function render(root, { parts }) {
 
     clear(summary).append(
       h("div", { class: "progress", role: "img", "aria-label": ORDER.map((k) => `${c[k] || 0} ${k}`).join(", ") },
-        total ? ORDER.map((k) => (c[k] ? h("span", { class: `progress-seg seg-${k}`, style: `flex:${c[k]}` }) : null)) : null),
+        total ? ORDER.map((k) => (c[k] ? h("span", { class: `progress-seg seg-${k}`, style: { flex: String(c[k]) } }) : null)) : null),
       h("dl", { class: "stats compact" }, ORDER.map((k) => h("div", { class: "stat" }, h("dt", null, k), h("dd", null, c[k] || 0)))),
       h("div", { class: "row" }, retry, cancel, h("a", { class: "btn", href: "#/sessions" }, "View sessions")));
 
@@ -63,6 +65,8 @@ export function render(root, { parts }) {
 
   async function poll() {
     if (stopped) return;
+    if (inflight) { again = true; return; }
+    inflight = true;
     clearTimeout(timer);
     try {
       const batch = await api.getBatch(id, ctrl.signal);
@@ -78,6 +82,9 @@ export function render(root, { parts }) {
       }
       clear(body).append(errorBox(e.message, poll));
       timer = setTimeout(poll, POLL_MS * 3);
+    } finally {
+      inflight = false;
+      if (again && !stopped) { again = false; poll(); }
     }
   }
   const onVisible = () => { if (!document.hidden && !stopped) poll(); };

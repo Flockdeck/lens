@@ -22,15 +22,19 @@ export function render(root) {
 
   let dragDepth = 0;
   const over = (on) => dropLabel.classList.toggle("dragging", on);
-  root.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth += 1; over(true); });
-  root.addEventListener("dragover", (e) => e.preventDefault());
-  root.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) over(false); });
-  root.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dragDepth = 0;
-    over(false);
-    add([...((e.dataTransfer && e.dataTransfer.files) || [])]);
-  });
+  // On the whole document, so a drop that misses the zone never navigates the tab to the file.
+  const dnd = {
+    dragenter: (e) => { e.preventDefault(); dragDepth += 1; over(true); },
+    dragover: (e) => e.preventDefault(),
+    dragleave: () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) over(false); },
+    drop: (e) => {
+      e.preventDefault();
+      dragDepth = 0;
+      over(false);
+      add([...((e.dataTransfer && e.dataTransfer.files) || [])]);
+    },
+  };
+  for (const [name, fn] of Object.entries(dnd)) document.addEventListener(name, fn);
 
   function add(incoming) {
     files = mergeFiles(files, incoming);
@@ -92,9 +96,10 @@ export function render(root) {
         } catch { /* optional */ }
         location.hash = `#/batches/${encodeURIComponent(res.id)}`;
       } catch (e) {
-        if (!(e instanceof ApiError)) throw e;
-        error = e.message;
-        serverRejected = (e.body && e.body.detail && e.body.detail.rejected) || (e.body && e.body.rejected) || [];
+        error = e.message || "Upload failed";
+        serverRejected = e instanceof ApiError
+          ? (e.body && e.body.detail && e.body.detail.rejected) || (e.body && e.body.rejected) || []
+          : [];
         toast(error, "error");
         draw();
       }
@@ -106,4 +111,5 @@ export function render(root) {
       h("p", { class: "muted" }, "Choose Flockdeck pane recordings. They go up as one batch and are processed in the background.")),
     input, dropLabel, list, actions, status);
   draw();
+  return () => { for (const [name, fn] of Object.entries(dnd)) document.removeEventListener(name, fn); };
 }
