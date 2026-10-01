@@ -23,7 +23,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import LargeBinary
 
 
-def _now() -> datetime:
+def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)  # stored as naive UTC
 
 
@@ -51,7 +51,7 @@ class Batch(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.queued)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     items: Mapped[list[BatchItem]] = relationship(back_populates="batch", cascade="all, delete-orphan")
 
 
@@ -64,7 +64,7 @@ class RawRecording(Base):
     content_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256 hex of the original bytes
     size_bytes: Mapped[int] = mapped_column(Integer)  # original size
     data: Mapped[bytes] = mapped_column(LargeBinary().with_variant(LONGBLOB(), "mysql"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 class BatchItem(Base):
@@ -81,8 +81,8 @@ class BatchItem(Base):
     error_retryable: Mapped[bool | None] = mapped_column(nullable=True)
     raw_id: Mapped[int | None] = mapped_column(ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True)
     session_id: Mapped[int | None] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     batch: Mapped[Batch] = relationship(back_populates="items")
 
@@ -109,7 +109,7 @@ class Session(Base):
     files_touched: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # {read, edited, commands}
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     raw_id: Mapped[int | None] = mapped_column(ForeignKey("raw_recordings.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     enrichment: Mapped[Enrichment | None] = relationship(back_populates="session", cascade="all, delete-orphan")
 
@@ -130,6 +130,6 @@ class Enrichment(Base):
     risk_notes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     session: Mapped[Session] = relationship(back_populates="enrichment")

@@ -12,7 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from session_lens.config import Settings
-from session_lens.db.models import BatchItem, ItemStatus, _now
+from session_lens.db.models import BatchItem, ItemStatus, utcnow
 from session_lens.enrich.base import Enricher
 from session_lens.worker.processor import Claim, ItemProcessor
 from session_lens.worker.queue import refresh_batch_status
@@ -28,7 +28,7 @@ async def claim_items(sm: async_sessionmaker[AsyncSession], limit: int) -> list[
     that keeps killing its worker still runs out of attempts."""
     if limit <= 0:
         return []
-    now = _now().replace(
+    now = utcnow().replace(
         microsecond=0
     )  # MySQL DATETIME has no fraction; the claim token must round-trip
     async with sm() as db:
@@ -66,7 +66,7 @@ async def recover_stale(
 ) -> int:
     """Re-queue running items whose claim is older than the timeout (their worker died or
     hung); fail those that have used all their attempts. Returns how many were recovered."""
-    cutoff = _now() - timedelta(seconds=claim_timeout_seconds)
+    cutoff = utcnow() - timedelta(seconds=claim_timeout_seconds)
     async with sm() as db:
         items = (
             (

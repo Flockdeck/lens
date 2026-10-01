@@ -10,7 +10,7 @@ from session_lens.db.models import (
     ItemStatus,
     RawRecording,
     Session,
-    _now,
+    utcnow,
 )
 from session_lens.worker.loop import claim_items
 from session_lens.worker.processor import ItemProcessor
@@ -94,7 +94,7 @@ async def test_one_bad_item_does_not_fail_the_batch(sm):
 
 
 async def test_retryable_enrichment_failure_backs_off_and_keeps_partial_result(sm):
-    before = _now()
+    before = utcnow()
     batch_id, (a,) = await run_one(
         sm, FakeEnricher([retryable("rate limited")]), [("a.jsonl", recording())]
     )
@@ -168,7 +168,7 @@ async def test_lost_claim_does_not_overwrite_the_new_holder(sm):
         await db.execute(
             update(BatchItem)
             .where(BatchItem.id == a)
-            .values(locked_at=_now() + timedelta(seconds=10))
+            .values(locked_at=utcnow() + timedelta(seconds=10))
         )
         await db.commit()
     await processor(sm, FakeEnricher()).process(claim)

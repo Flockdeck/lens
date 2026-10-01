@@ -10,7 +10,7 @@ import zstandard
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, _now
+from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
 
 
 class BatchNotFound(LookupError):
@@ -93,9 +93,16 @@ async def refresh_batch_status(session: AsyncSession, batch_id: int) -> BatchSta
     return status
 
 
+async def _require_batch(session: AsyncSession, batch_id: int) -> None:
+    if (await session.execute(select(Batch.id).where(Batch.id == batch_id))).first() is None:
+        raise BatchNotFound(batch_id)
+
+
+# Lock order everywhere: item rows first, then the batch row (claim_items and the item
+# settle path do the same). Taking them in the other order can deadlock against a worker.
 async def retry_failed(session: AsyncSession, batch_id: int) -> int:
     """Re-queue the failed items of a batch. Returns how many were re-queued."""
-    batch = await _get_batch_locked(session, batch_id)
+    await _require_batch(session, batch_id)
     result = await session.execute(
         update(BatchItem)
         .where(BatchItem.batch_id == batch_id, BatchItem.status == ItemStatus.failed)
@@ -106,12 +113,13 @@ async def retry_failed(session: AsyncSession, batch_id: int) -> int:
             locked_at=None,
             error=None,
             error_retryable=None,
-            updated_at=_now(),
+            updated_at=utcnow(),
         )
     )
     count: int = result.rowcount  # type: ignore[attr-defined]
     if count:
-        batch.status = BatchStatus.running  # recomputed just below
+        batch = await _get_batch_locked(session, batch_id)
+        batch.status = BatchStatus.running  # recomputed just below; clears a sticky cancelled
         await session.flush()
         await refresh_batch_status(session, batch_id)
     return count
@@ -120,12 +128,13 @@ async def retry_failed(session: AsyncSession, batch_id: int) -> int:
 async def cancel_batch(session: AsyncSession, batch_id: int) -> int:
     """Cancel the queued items of a batch; running items are left to finish. Marks the batch
     cancelled. Returns how many items were cancelled."""
-    batch = await _get_batch_locked(session, batch_id)
+    await _require_batch(session, batch_id)
     result = await session.execute(
         update(BatchItem)
         .where(BatchItem.batch_id == batch_id, BatchItem.status == ItemStatus.queued)
-        .values(status=ItemStatus.cancelled, not_before=None, updated_at=_now())
+        .values(status=ItemStatus.cancelled, not_before=None, updated_at=utcnow())
     )
+    batch = await _get_batch_locked(session, batch_id)
     batch.status = BatchStatus.cancelled
     await session.flush()
     count: int = result.rowcount  # type: ignore[attr-defined]

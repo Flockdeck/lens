@@ -8,7 +8,7 @@ from datetime import timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from session_lens.db.models import BatchItem, ItemStatus, RawRecording, _now
+from session_lens.db.models import BatchItem, ItemStatus, RawRecording, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ async def cleanup_raw(sm: async_sessionmaker[AsyncSession], retention_days: int)
     """Delete raw recordings older than `retention_days`, except those a queued or running item
     still needs. References from items and sessions are set to NULL by the foreign keys.
     Returns how many were deleted."""
-    cutoff = _now() - timedelta(days=retention_days)
+    cutoff = utcnow() - timedelta(days=retention_days)
     in_use = select(BatchItem.raw_id).where(
         BatchItem.status.in_([ItemStatus.queued, ItemStatus.running]),
         BatchItem.raw_id.is_not(None),

@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from session_lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecording, Session, _now
+from session_lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecording, Session, utcnow
 from session_lens.worker.cleanup import cleanup_raw
 from session_lens.worker.loop import claim_items
 from session_lens.worker.processor import ItemProcessor
@@ -11,7 +11,7 @@ from tests.worker.helpers import FakeEnricher, get_item, make_batch, recording
 
 async def age_raws(sm, days):
     async with sm() as db:
-        await db.execute(update(RawRecording).values(created_at=_now() - timedelta(days=days)))
+        await db.execute(update(RawRecording).values(created_at=utcnow() - timedelta(days=days)))
         await db.commit()
 
 

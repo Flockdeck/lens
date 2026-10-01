@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from session_lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecording, Session, _now
+from session_lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecording, Session, utcnow
 from session_lens.enrich.base import Enricher, EnrichmentResult
 from session_lens.recording.models import Analysis
 from session_lens.recording.parser import analyze, parse
@@ -18,6 +18,10 @@ from session_lens.worker.queue import decompress, refresh_batch_status
 from session_lens.worker.retry import Failure, MissingRaw, backoff_seconds, classify
 
 log = logging.getLogger(__name__)
+
+
+def _analyze_blob(blob: bytes) -> Analysis:
+    return analyze(parse(decompress(blob)))
 
 
 @dataclass(frozen=True)
@@ -85,7 +89,7 @@ async def upsert_enrichment(db: AsyncSession, session_id: int, result: Enrichmen
     row.risk_notes = [n.model_dump(mode="json") for n in result.risk_notes]
     row.input_tokens = result.input_tokens
     row.output_tokens = result.output_tokens
-    row.created_at = _now()
+    row.created_at = utcnow()
     await db.flush()
 
 
@@ -123,7 +127,8 @@ class ItemProcessor:
             raw = await db.get(RawRecording, item.raw_id) if item and item.raw_id else None
             if raw is None:
                 raise MissingRaw
-            analysis = analyze(parse(decompress(raw.data)))
+            # CPU-bound on up to 16 MiB: keep it off the event loop.
+            analysis = await asyncio.to_thread(_analyze_blob, raw.data)
             row = await upsert_session(db, analysis, raw.content_hash, raw.id)
             session_id = row.id
             enriched = (
@@ -156,7 +161,7 @@ class ItemProcessor:
                 status=ItemStatus.queued,
                 error=failure.message,
                 retryable=True,
-                not_before=_now() + timedelta(seconds=backoff_seconds(claim.attempts)),
+                not_before=utcnow() + timedelta(seconds=backoff_seconds(claim.attempts)),
             )
         else:
             await self._settle(
@@ -182,7 +187,7 @@ class ItemProcessor:
             "error_retryable": retryable,
             "not_before": not_before,
             "locked_at": None,
-            "updated_at": _now(),
+            "updated_at": utcnow(),
         }
         if session_id is not None:
             values["session_id"] = session_id
