@@ -111,7 +111,7 @@ export function render(root, { query }) {
           h("td", null, s.outcome ? badge(s.outcome) : ""),
           h("td", { class: "num" }, s.frustration == null ? "" : s.frustration.toFixed(2)),
           h("td", { class: "num nowrap" }, fmtDuration(s.duration_seconds ?? (s.metrics && s.metrics.duration_seconds))),
-          h("td", { class: "summary-cell" }, s.summary || "")))))),
+          h("td", null, h("div", { class: "summary-cell" }, s.summary || ""))))))),
       h("nav", { class: "row pager", "aria-label": "Pagination" },
         link(page - 1, "Previous", page <= 1), h("span", { class: "muted" }, `Page ${page} of ${pages}`),
         link(page + 1, "Next", page >= pages)));
