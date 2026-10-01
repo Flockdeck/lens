@@ -79,15 +79,20 @@ services:
       # Random, generated into the git-ignored .env by `make token`.
       API_TOKEN: ${API_TOKEN:?run `make token` first}
       ENRICHER: ${ENRICHER:-mock}
+      STORAGE: filesystem
       DATA_DIR: /data
-      RAW_RETENTION_DAYS: "30"
+      RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-30}
+      # In-process retention sweep interval (the worker runs it); the app's default applies if unset.
+      # CLEANUP_INTERVAL_SECONDS: 3600
     depends_on:
       mysql: {condition: service_healthy}
     restart: "no"
 
   api:
     build: .
-    command: ["session-lens", "api"]
+    # Inside the container the API must bind 0.0.0.0 to be reachable through the published port;
+    # the host side is still loopback-only (127.0.0.1:8000 below).
+    command: ["session-lens", "api", "--host", "0.0.0.0"]
     environment: *app-env
     ports:
       - "127.0.0.1:8000:8000"
@@ -101,9 +106,10 @@ services:
     command: ["session-lens", "worker"]
     environment:
       <<: *app-env
-      # To enrich with a local Ollama on the host instead of the mock, set ENRICHER accordingly
-      # (once the enricher supports it) and uncomment this and extra_hosts below:
+      # Default is the mock enricher. To use a local Ollama on the host, set ENRICHER=ollama (in
+      # .env) and uncomment OLLAMA_URL and extra_hosts. The app validates that the URL is local.
       # OLLAMA_URL: http://host.docker.internal:11434
+      # OLLAMA_MODEL: llama3.1:8b
     # extra_hosts:
     #   - "host.docker.internal:host-gateway"
     volumes:
