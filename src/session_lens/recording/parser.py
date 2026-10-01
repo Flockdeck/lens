@@ -6,6 +6,7 @@ Warnings carry counts only, never recording content.
 """
 
 import json
+from collections.abc import Iterable
 
 from pydantic import ValidationError
 
@@ -38,19 +39,23 @@ class EventList(list[Event]):
         self.warnings: list[str] = warnings or []
 
 
-def parse(data: bytes) -> EventList:
-    """Parse a recording. Raises UnsupportedVersion or EmptyRecording; skips bad lines."""
-    lines = data.split(b"\n")
-    last = max((i for i, ln in enumerate(lines) if ln.strip()), default=-1)
+def parse_lines(lines: Iterable[str]) -> EventList:
+    """Parse stored lines, in order. Skips bad lines; may return an empty list.
+
+    Safe on a page that starts mid-file: no `recording_started` is required, and an empty page
+    is not an error. Raises UnsupportedVersion for a line with another `v`.
+    """
+    items = list(lines)
+    last = max((i for i, ln in enumerate(items) if ln.strip()), default=-1)
     events: list[Event] = []
     malformed = 0
     cut_last_line = False
 
-    for i, raw in enumerate(lines):
+    for i, raw in enumerate(items):
         if not raw.strip():
             continue
         try:
-            obj = json.loads(raw.decode("utf-8-sig" if i == 0 else "utf-8", errors="replace"))
+            obj = json.loads(raw.lstrip("﻿") if i == 0 else raw)
         except json.JSONDecodeError:
             if i == last:
                 cut_last_line = True
@@ -72,9 +77,6 @@ def parse(data: bytes) -> EventList:
             else:
                 malformed += 1
 
-    if not events:
-        raise EmptyRecording("the recording holds no events")
-
     warnings: list[str] = []
     if cut_last_line:
         warnings.append("unterminated last line")
@@ -83,10 +85,18 @@ def parse(data: bytes) -> EventList:
     return EventList(events, warnings)
 
 
-def iter_events(data: bytes, after_seq: int = 0, limit: int = 200) -> list[Event]:
-    """A page of events for the raw view: those with seq > after_seq, in seq order."""
-    page = sorted((e for e in parse(data) if e.seq > after_seq), key=lambda e: e.seq)
-    return page[: max(0, limit)]
+def parse(data: bytes) -> EventList:
+    """Parse a whole recording. Raises UnsupportedVersion or EmptyRecording."""
+    # decode per line so invalid UTF-8 only damages its own line
+    events = parse_lines(raw.decode("utf-8", errors="replace") for raw in data.split(b"\n"))
+    if not events:
+        raise EmptyRecording("the recording holds no events")
+    return events
+
+
+def analyze_lines(lines: Iterable[str]) -> Analysis:
+    """parse_lines + analyze, for a whole recording. Raises EmptyRecording if no events."""
+    return analyze(parse_lines(lines))
 
 
 def _seq_gaps(events: list[Event]) -> int:

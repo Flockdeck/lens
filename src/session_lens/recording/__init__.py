@@ -13,8 +13,9 @@ from session_lens.recording.parser import (
     EmptyRecording,
     UnsupportedVersion,
     analyze,
-    iter_events,
+    analyze_lines,
     parse,
+    parse_lines,
 )
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "RiskyAction",
     "UnsupportedVersion",
     "analyze",
-    "iter_events",
+    "analyze_lines",
     "parse",
+    "parse_lines",
 ]

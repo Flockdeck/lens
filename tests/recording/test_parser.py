@@ -3,7 +3,14 @@ from datetime import UTC
 
 import pytest
 
-from session_lens.recording import EmptyRecording, UnsupportedVersion, analyze, iter_events, parse
+from session_lens.recording import (
+    EmptyRecording,
+    UnsupportedVersion,
+    analyze,
+    analyze_lines,
+    parse,
+    parse_lines,
+)
 from tests.recording.conftest import make_line, to_bytes
 
 Fx = Callable[[str], bytes]
@@ -144,17 +151,49 @@ def test_warnings_never_contain_recording_content(fixture: Fx) -> None:
             assert secret not in text
 
 
-def test_iter_events_pages_by_seq(fixture: Fx) -> None:
+def lines_of(data: bytes) -> list[str]:
+    return data.decode().split("\n")
+
+
+def test_parse_lines_matches_parse(fixture: Fx) -> None:
     data = fixture("claude_full.jsonl")
-    page = iter_events(data, after_seq=0, limit=5)
-    assert [e.seq for e in page] == [1, 2, 3, 4, 5]
-    nxt = iter_events(data, after_seq=page[-1].seq, limit=3)
-    assert [e.seq for e in nxt] == [6, 7, 8]
-    assert iter_events(data, after_seq=10_000) == []
+    assert parse_lines(lines_of(data)) == parse(data)
+    assert analyze_lines(lines_of(data)) == analyze(parse(data))
 
 
-def test_iter_events_keeps_unknown_types(fixture: Fx) -> None:
-    assert "hologram" in [e.type for e in iter_events(fixture("unknown_types_and_fields.jsonl"))]
+def test_parse_lines_accepts_a_page_from_mid_file(fixture: Fx) -> None:
+    page = lines_of(fixture("claude_full.jsonl"))[10:15]
+    events = parse_lines(page)
+    assert [e.seq for e in events] == [11, 12, 13, 14, 15]
+    assert events.warnings == []
+
+
+def test_parse_lines_accepts_a_generator_and_blank_lines() -> None:
+    lines = (ln for ln in [to_bytes(make_line(5, "user_prompt")).decode(), "\n", ""])
+    assert [e.seq for e in parse_lines(lines)] == [5]
+
+
+def test_parse_lines_empty_page_is_not_an_error() -> None:
+    assert parse_lines([]) == []
+    assert parse_lines(["", "  "]) == []
+
+
+def test_parse_lines_keeps_unknown_types(fixture: Fx) -> None:
+    types = [e.type for e in parse_lines(lines_of(fixture("unknown_types_and_fields.jsonl")))]
+    assert "hologram" in types
+
+
+def test_parse_lines_skips_cut_last_line_and_refuses_other_versions() -> None:
+    good = to_bytes(make_line(1, "user_prompt")).decode().strip()
+    events = parse_lines([good, '{"v":1,"seq":2,'])
+    assert [e.seq for e in events] == [1] and events.warnings == ["unterminated last line"]
+    with pytest.raises(UnsupportedVersion):
+        parse_lines([good, '{"v":3,"seq":2}'])
+
+
+def test_analyze_lines_of_nothing_raises() -> None:
+    with pytest.raises(EmptyRecording):
+        analyze_lines([])
 
 
 def test_analyze_empty_list() -> None:
