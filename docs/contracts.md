@@ -10,7 +10,7 @@ are repeated in the README).
 | --- | --- | --- |
 | recording | `src/session_lens/recording/`, `tests/recording/`, `tests/fixtures/` | nothing |
 | enrich | `src/session_lens/enrich/`, `tests/enrich/` | recording's `Analysis` type |
-| worker | `src/session_lens/worker/`, `src/session_lens/db/` (except `models.py`), `alembic/`, `alembic.ini`, `src/session_lens/cli.py` | recording, enrich, `db/models.py` |
+| worker | `src/session_lens/worker/`, `src/session_lens/storage/`, `src/session_lens/db/` (except `models.py`), `alembic/`, `alembic.ini`, `src/session_lens/cli.py` | recording, enrich, `db/models.py` |
 | api | `src/session_lens/api/`, `tests/api/` | `db/models.py`, `config.py` |
 | web | `src/session_lens/web/`, `tests/web/` | the HTTP API below |
 | deploy | `Dockerfile`, `docker-compose.yml`, `.github/`, `deploy/`, `Makefile` | everything, by name only |
@@ -46,16 +46,13 @@ class UnsupportedVersion(Exception): ...      # permanent failure
 class EmptyRecording(Exception): ...          # permanent failure
 def parse(data: bytes) -> list[Event]: ...    # tolerant: skips bad last line / unknown types
 def analyze(events: list[Event]) -> Analysis: ...
-def parse_lines(lines: Iterable[str]) -> list[Event]: ...   # same tolerance as parse(), from stored lines
+def parse_lines(lines: Iterable[str]) -> list[Event]: ...   # same tolerance as parse()
 def analyze_lines(lines: Iterable[str]) -> Analysis: ...    # parse_lines + analyze
 ```
 
-`parse(data)` splits on `
-` and calls `parse_lines`. The raw event view reads a page of
-stored lines (`line_no` order) and calls `parse_lines` on just that page.
-
-```python
-```
+`parse(data)` splits on a newline and calls `parse_lines`. A page of lines from the middle of a
+file parses fine (no `recording_started` line required). The events endpoint parses the whole
+fetched file and slices by `seq`.
 
 `Metrics` (stored in `sessions.metrics`): `duration_seconds`, `turns`, `tool_calls`,
 `tool_mix: dict[str,int]`, `tool_errors`, `tool_interrupted`, `unpaired_calls`,
@@ -85,22 +82,65 @@ class Enricher(Protocol):
 def build_enricher(settings: Settings) -> Enricher: ...   # mock or anthropic
 ```
 
+## storage (owned by the worker component)
+
+Recordings live in an S3-compatible bucket: DigitalOcean Spaces in the cluster, MinIO in docker
+compose and in CI. The database keeps **one `raw_recordings` row per file** (hash, size,
+`object_key`, `created_at`, `expired_at`); the bytes are fetched whole when needed (at most
+16 MiB). Use `aioboto3` with `endpoint_url`, `region`, bucket and keys from `Settings`.
+
+```python
+# storage/base.py
+class RecordingExpired(Exception): ...           # object is gone (lifecycle rule, or deleted)
+
+class RecordingStore(Protocol):
+    async def put(self, key: str, data: bytes) -> None: ...
+    async def get(self, key: str) -> bytes: ...          # raises RecordingExpired on NoSuchKey
+    async def delete(self, key: str) -> None: ...        # idempotent
+    async def ping(self) -> None: ...                    # for /readyz; raises if unreachable
+
+def build_store(settings: Settings) -> RecordingStore: ...   # S3 (Spaces / MinIO)
+```
+
+Object keys are `{s3_prefix}YYYY/MM/<uuid4>.jsonl`, one object per uploaded file, never shared
+between rows. Helpers in `worker/queue.py` (all take the store explicitly):
+
+- `await store_raw(session, store, data: bytes) -> RawRecording`: hash the bytes, **put the
+  object first**, then add the row (flushed, not committed). A failure after the put leaves an
+  orphan object, which the lifecycle rule removes; a row never points at a missing object.
+- `await read_raw(session, store, raw_id) -> bytes`: raises `RecordingExpired` if the row has
+  `expired_at` set or the object is gone (and then sets `expired_at`).
+- `await delete_raws_for_hash(session, store, content_hash) -> int`: delete every raw row with
+  that hash and its object (used by delete-session; best effort on the object, then the row).
+
+### Retention and cleanup
+
+- Raw recordings are kept `raw_retention_days` (30). Enforcement is a **bucket lifecycle rule**
+  that expires objects under the prefix after the same number of days (terrawost sets it; for
+  local MinIO, `docker-compose` sets the same rule). The app never lists or sweeps the bucket.
+- `session-lens cleanup` (a daily CronJob) only reconciles the database: it sets `expired_at`
+  on rows older than `raw_retention_days`, so the UI and API know the raw is gone without a
+  request to the bucket. It does not delete objects. It also deletes finished batches (and
+  their items) older than 90 days; sessions, metrics and enrichments are kept.
+- An item that references an expired recording fails permanently ("raw recording expired").
+  `GET /sessions/{id}/events` and `POST /sessions/{id}/enrich` return `410` for an expired
+  recording; session responses carry `raw_available: bool` so the UI can disable them.
+- Deleting a session also deletes its raw rows and objects. Resubmitting the same content
+  creates a second raw row but the same session, which is why delete goes by `content_hash`.
+- Never log keys' contents or bytes; object keys are random and safe to log.
+
 ## worker
 
 - `session-lens worker` runs the claim loop; `session-lens api` serves; `session-lens cleanup`
-  deletes raw recordings older than `raw_retention_days` (used by a CronJob);
-  `session-lens migrate` runs `alembic upgrade head`.
+  reconciles retention as above; `session-lens migrate` runs `alembic upgrade head`.
 - Claiming uses `with_for_update(skip_locked=True)`; stale claims (`locked_at` older than
   `claim_timeout_seconds`) are re-queued. Backoff sets `not_before`.
-- Processing one item: read the recording's lines → `parse_lines` → `analyze` → upsert `Session` keyed on
-  `(recording_session, content_hash)` → `enrich` → upsert `Enrichment` → item `done`. A
-  `Batch` becomes `done` when no item is queued or running.
-- Exposes `worker/queue.py` helpers the API reuses: `create_batch(session, files)`,
-  `retry_failed(session, batch_id)`, `cancel_batch(session, batch_id)`, and
-  `store_raw(session, data) -> RawRecording` (hash the bytes, split on `
-`, insert one
-  `recording_lines` row per line in batches of about 500; no compression, no large packets),
-  and `read_lines(session, raw_id, after_line=0, limit=None) -> list[str]` (ordered by `line_no`).
+- Processing one item: `read_raw` → `analyze(parse(data))` (in a thread) → upsert `Session`
+  keyed on `(recording_session, content_hash)` → `enrich` → upsert `Enrichment` → item `done`.
+  A `Batch` becomes `done` when no item is queued or running.
+- Exposes `worker/queue.py` helpers the API reuses: `create_batch(session, store, files)`,
+  `retry_failed(session, batch_id)`, `cancel_batch(session, batch_id)`, plus the storage helpers
+  above and `upsert_enrichment`.
 
 ## HTTP API (all JSON; everything except `/healthz`, `/readyz`, `/metrics` needs
 `Authorization: Bearer <API_TOKEN>`)
@@ -113,21 +153,24 @@ def build_enricher(settings: Settings) -> Enricher: ...   # mock or anthropic
 - `GET /sessions?project=&agent=&model=&category=&outcome=&from=&to=&limit=&offset=` →
   `{total, items: [SessionSummary]}`
 - `GET /sessions/{id}` → full record (metrics, risky actions, files touched, warnings, enrichment)
-- `GET /sessions/{id}/events?after_seq=&limit=` → a page of parsed events read from `recording_lines` (`after_seq` is matched against the
-  events' own `seq`; `410` once the raw recording is deleted)
+- `GET /sessions/{id}/events?after_seq=&limit=` → a page of parsed events: fetch the file with `read_raw`,
+  `parse` it, keep events with `seq > after_seq`, return `{items, next_after_seq}`; `410` once
+  the raw recording has expired or been deleted
 - `POST /sessions/{id}/enrich` (overwrites), `DELETE /sessions/{id}`
 - `GET /stats/trends?project=&interval=day|week` →
   `[{bucket, sessions, outcomes: {...}, avg_frustration, tool_error_rate}]`
 - `GET /stats/compare?by=agent|model` →
   `[{key, sessions, outcomes: {...}, tool_error_rate, permission_denial_rate, avg_frustration}]`
 - `GET /stats/usage` → `{input_tokens, output_tokens, enrichments}`
-- `GET /healthz` (process up), `GET /readyz` (DB reachable), `GET /metrics` (Prometheus)
+- `GET /healthz` (process up), `GET /readyz` (DB and `store.ping()` reachable), `GET /metrics` (Prometheus)
 - The static UI is served from `/` by the API app (`StaticFiles` over `session_lens/web/`).
 
 ## Rules for every component
 
 - Python 3.12, fully typed (`mypy --strict` clean), `ruff` clean, tests with `pytest`.
-- Tests that need a database use MySQL via `DATABASE_URL` (docker compose), never SQLite.
+- Tests that need a database use MySQL via `DATABASE_URL` (docker compose), never SQLite. Tests
+  that need the object store use MinIO from docker compose (`S3_ENDPOINT_URL`), never a mock of
+  the S3 API; unit tests of other components may use an in-memory `RecordingStore` fake.
 - Logs carry ids and counts only. Never log recording content, prompts or messages.
 - Commit on your own branch with clear messages. Do not push, merge, or touch other
   components' files.

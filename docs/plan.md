@@ -33,8 +33,14 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
   retryable vs permanent errors, idempotency on session id + content hash.
 - **Submission:** `POST /batches` multipart, multiple `.jsonl` files; per-file reject reasons,
   `202` + batch id; `422` if none accepted. Size caps per file/request, matched on ingress.
-- **Raw storage:** one MySQL row per recording line (`recording_lines`: raw_id, line_no, text), in file order. No blobs, so no large `max_allowed_packet`; the raw event view pages by `line_no`.
-- **Retention:** raw recordings deleted after 30 days by a CronJob; metrics/enrichment kept.
+- **Raw storage:** the uploaded file goes to an S3-compatible bucket (DigitalOcean Spaces in the
+  cluster, MinIO locally and in CI) through the API; MySQL keeps one `raw_recordings` row per
+  file (hash, size, object key, created/expired times). Files (at most 16 MiB) are fetched whole
+  when needed.
+- **Retention:** raw recordings live 30 days. A bucket lifecycle rule (terrawost) expires the
+  objects; a daily `session-lens cleanup` CronJob only sets `expired_at` on old rows and prunes
+  finished batches older than 90 days. Sessions, metrics and enrichments are kept. Expired raw
+  means no events view and no re-enrich (410); delete-session removes the raw object too.
 - **UI (no-build ES modules, served by FastAPI):** submit (multi-select + drag-drop), batch
   progress by **polling**, session list with filters, session detail (metrics, enrichment,
   risky actions, stuck points, files), **raw event view** (paged), **trends over time**,
@@ -53,12 +59,12 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
 ## Step 1: README
 
 Update `README.md` "My idea" with everything above: name, host, enrichment and computed fields,
-auth, worker Deployment, raw storage, retention CronJob, management endpoints, new endpoints
+auth, worker Deployment, raw storage, retention reconcile CronJob, management endpoints, new endpoints
 below, UI screens, observability, model default. Replace `<app>` placeholders.
 
 API additions to document:
 - `POST /batches/{id}/retry` (failed items), `POST /batches/{id}/cancel` (queued items)
-- `DELETE /sessions/{id}` (session, raw recording and its lines, enrichment)
+- `DELETE /sessions/{id}` (session, enrichment, raw rows and objects)
 - `GET /sessions/{id}/events?after_seq=&limit=` (raw event view)
 - `POST /sessions/{id}/enrich` (re-enrich, overwrites)
 - `GET /stats/trends?project=&interval=day|week`, `GET /stats/compare?by=agent|model`

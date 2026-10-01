@@ -132,7 +132,19 @@ from the same origin.
 - **Upload limits.** A recording is at most 16 MiB (Flockdeck's own cap), so the API accepts at
   most a little over that per file and rejects larger files individually. The request as a
   whole is also bounded (file count and total size), and the HAProxy ingress body limit is
-  set to match. Files are streamed to storage rather than read into memory.
+  set to match. The API validates each file and writes it to the object store.
+- **Raw storage.** The uploaded file goes to an S3-compatible bucket (DigitalOcean Spaces in
+  the cluster, MinIO locally and in CI) through a small `RecordingStore` interface. MySQL keeps
+  one `raw_recordings` row per file (hash, size, object key, created and expired times), and
+  the worker and the events view fetch the file whole when they need it, since it is at most
+  16 MiB. The object is written before the row, so a row never points at a missing file.
+- **Retention and cleanup.** Raw recordings are sensitive, so they are kept for 30 days. A
+  lifecycle rule on the bucket expires the objects, so the app never has to list or sweep the
+  bucket. A daily `session-lens cleanup` CronJob only reconciles the database: it marks rows
+  past retention as expired (the UI then disables the raw event view and re-enrich, and the API
+  answers `410`) and prunes finished batch records older than 90 days. Sessions, metrics and
+  enrichments are kept. Deleting a session also deletes its raw rows and objects. An orphan
+  object (upload succeeded, database write failed) is removed by the lifecycle rule too.
 - **Parser.** A tolerant reader for format v1: skips bad last lines and unknown types, rejects
   other versions, pairs calls with results on `toolUseId`, and reports warnings rather than
   failing.
@@ -148,7 +160,8 @@ from the same origin.
 - **Storage.** SQLAlchemy 2.0 with Alembic migrations, on MySQL 8 everywhere: locally, in CI
   and in the cluster (the shared managed MySQL that terrawost provisions). There is no SQLite
   path, so dev, CI and production share one dialect, one driver and one set of migrations.
-  A `docker-compose.yml` starts a local MySQL, and `DATABASE_URL` points the app at it.
+  A `docker-compose.yml` starts a local MySQL and a MinIO (S3-compatible) with the same
+  30-day lifecycle rule on its bucket, and `DATABASE_URL` and `S3_*` point the app at them.
   Tables: batches, batch items, sessions, metrics, enrichments.
 - **Privacy.** Recordings are sensitive. The service logs ids and counts, never content.
 
@@ -161,7 +174,8 @@ depends on.
 **GitHub Actions** (`.github/workflows/ci.yaml`):
 
 - On every push and pull request: lint and type-check (ruff, mypy), then the test suite against
-  a MySQL 8 service container, the same major version and driver as the cluster and the local
+  a MySQL 8 service container and a MinIO container (started with `docker run`, since service
+  containers cannot pass `server /data`), the same major version and driver as the cluster and the local
   compose file.
 - On a `v*` tag, after tests pass: build the Docker image and push
   `ghcr.io/jmwri/<app>:<version>`. Tags are plain semver with no `v`, because Flux's
@@ -175,8 +189,9 @@ depends on.
 - `ImageRepository` and `ImagePolicy` (semver), so a new tag is rolled out automatically.
 - `Ingress` through HAProxy with `ssl-redirect` and cert-manager's `letsencrypt-prod`, which
   serves both the UI and the API from one host.
-- `NetworkPolicy` allowing ingress only from `haproxy-ingress` and egress only to DNS and MySQL.
-  The mock enricher needs no other egress. A real LLM provider would need a rule for it.
+- `NetworkPolicy` allowing ingress only from `haproxy-ingress` and egress only to DNS, MySQL
+  and the Spaces endpoint (HTTPS). The mock enricher needs no other egress. A real LLM provider
+  would need a rule for it.
 - Database migrations run as an init container (`alembic upgrade head`) before the app starts.
 - One replica to begin with. Workers pull batch items from the database, so scaling out later
   means claiming rows with `SELECT ... FOR UPDATE SKIP LOCKED` (MySQL 8 supports it).
@@ -187,7 +202,11 @@ depends on.
 2. a database and user on the shared managed MySQL cluster, with DDL rights for migrations,
 3. a secret holding `DATABASE_URL` (and the CA for the TLS connection to MySQL),
 4. a DNS record for the app's hostname,
-5. the `ghcr.io` package set to public, or an `ImageRepository` `secretRef` and
+5. a DigitalOcean Spaces bucket with a lifecycle rule that expires objects under `recordings/`
+   after 30 days (it must match `RAW_RETENTION_DAYS`), and an access key scoped to that bucket
+   in the same secret (`S3_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`,
+   `S3_SECRET_KEY`),
+6. the `ghcr.io` package set to public, or an `ImageRepository` `secretRef` and
    `imagePullSecrets` if it stays private.
 
 Talking points: why pull-based GitOps instead of `kubectl apply` from CI, how a bad release is
