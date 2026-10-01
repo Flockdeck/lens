@@ -7,7 +7,17 @@ import enum
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.mysql import LONGBLOB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import LargeBinary
@@ -81,6 +91,7 @@ class Session(Base):
     """One recording session. Idempotency key: (recording_session, content_hash)."""
 
     __tablename__ = "sessions"
+    __table_args__ = (UniqueConstraint("recording_session", "content_hash"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     recording_session: Mapped[str] = mapped_column(String(128), index=True)  # `session` in the file
