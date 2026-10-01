@@ -1,7 +1,4 @@
-IMAGE ?= ghcr.io/jmwri/session-lens
-TAG ?= dev
-
-.PHONY: help install db db-down migrate api worker lint format typecheck test check build up down
+.PHONY: help install token up down logs migrate api worker lint format typecheck test check build clean-data
 
 help:
 	@grep -E '^[a-z-]+:' Makefile | cut -d: -f1 | sort
@@ -9,13 +6,22 @@ help:
 install:
 	uv sync
 
-db:
-	docker compose up -d --wait mysql s3
-	docker compose run --rm s3-init
+# Writes a random API_TOKEN to the git-ignored .env (kept if already present).
+token:
+	@if grep -qs '^API_TOKEN=' .env; then echo ".env already has an API_TOKEN"; else \
+	  echo "API_TOKEN=$$(uv run python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env; \
+	  echo "wrote API_TOKEN to .env"; fi
 
-db-down:
+up: token
+	docker compose up --build -d
+
+down:
 	docker compose down
 
+logs:
+	docker compose logs -f api worker
+
+# Non-docker runs; need `docker compose up -d --wait mysql` and the settings in .env.
 migrate:
 	uv run session-lens migrate
 
@@ -34,7 +40,7 @@ format:
 	uv run ruff format .
 
 typecheck:
-	uv run mypy src
+	uv run mypy --strict src
 
 test:
 	uv run pytest
@@ -42,10 +48,11 @@ test:
 check: lint typecheck test
 
 build:
-	docker build -t $(IMAGE):$(TAG) .
+	docker build -t session-lens:dev .
 
-up:
-	docker compose up --build -d
-
-down:
-	docker compose down
+# Deletes all stored raw recordings (the shared data volume), after asking.
+clean-data:
+	@printf "Stop the stack and delete ALL raw recordings in volume session-lens-data? [y/N] "; \
+	read ans; if [ "$$ans" = "y" ]; then \
+	  docker compose down && docker volume rm session-lens-data; \
+	else echo "aborted"; fi
