@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.config import Settings
-from session_lens.db.models import Batch
+from session_lens.db.models import Batch, RawRecording
 
 if TYPE_CHECKING:
     from session_lens.enrich.base import Enricher, EnrichmentResult
@@ -47,8 +47,15 @@ class QueueApi(Protocol):
     """The slice of `worker/` the API uses (see docs/contracts.md)."""
 
     async def create_batch(
-        self, session: AsyncSession, store: "RecordingStore", files: Sequence[tuple[str, bytes]]
+        self,
+        session: AsyncSession,
+        store: "RecordingStore",
+        files: Sequence[tuple[str, RawRecording]],
     ) -> Batch: ...
+
+    async def store_raw(
+        self, session: AsyncSession, store: "RecordingStore", data: bytes
+    ) -> RawRecording: ...
 
     async def retry_failed(self, session: AsyncSession, batch_id: int) -> object: ...
 
@@ -71,12 +78,23 @@ class _WorkerQueue:
     """Adapter over the worker modules, imported lazily so the API can load without them."""
 
     async def create_batch(
-        self, session: AsyncSession, store: "RecordingStore", files: Sequence[tuple[str, bytes]]
+        self,
+        session: AsyncSession,
+        store: "RecordingStore",
+        files: Sequence[tuple[str, RawRecording]],
     ) -> Batch:
         from session_lens.worker import queue
 
         result: Batch = await queue.create_batch(session, store, files)
         return result
+
+    async def store_raw(
+        self, session: AsyncSession, store: "RecordingStore", data: bytes
+    ) -> RawRecording:
+        from session_lens.worker import queue
+
+        raw: RawRecording = await queue.store_raw(session, store, data)
+        return raw
 
     async def retry_failed(self, session: AsyncSession, batch_id: int) -> object:
         from session_lens.worker import queue

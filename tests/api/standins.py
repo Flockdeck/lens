@@ -117,11 +117,10 @@ class FakeQueue:
         return raw
 
     async def create_batch(
-        self, session: AsyncSession, store: Any, files: Sequence[tuple[str, bytes]]
+        self, session: AsyncSession, store: Any, files: Sequence[tuple[str, RawRecording]]
     ) -> Batch:
         batch = Batch()
-        for name, data in files:
-            raw = await self.store_raw(session, store, data)
+        for name, raw in files:
             batch.items.append(BatchItem(filename=name, raw_id=raw.id))
         session.add(batch)
         await session.flush()

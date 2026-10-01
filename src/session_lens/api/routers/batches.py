@@ -15,7 +15,7 @@ from session_lens.api.deps import QueueApi, get_app_settings, get_db, get_queue,
 from session_lens.api.schemas import BatchAccepted, BatchItemOut, BatchOut, RejectedFile
 from session_lens.api.uploads import check_file
 from session_lens.config import Settings
-from session_lens.db.models import Batch, ItemStatus
+from session_lens.db.models import Batch, ItemStatus, RawRecording
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 if TYPE_CHECKING:
@@ -74,7 +74,7 @@ async def submit_batch(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed multipart request") from exc
     try:
         parts = [p for p in form.getlist("files") if isinstance(p, UploadFile)]
-        accepted: list[tuple[str, bytes]] = []
+        accepted: list[tuple[str, RawRecording]] = []
         rejected: list[RejectedFile] = []
         total = 0
         for part in parts:
@@ -86,7 +86,8 @@ async def submit_batch(
             if total > settings.max_request_bytes:
                 rejected.append(RejectedFile(filename=name, reason="request size limit exceeded"))
                 continue
-            accepted.append((name, outcome))
+            # One file in memory at a time: put it in the store, then drop the bytes.
+            accepted.append((name, await queue.store_raw(db, store, outcome)))
         if not accepted:
             await db.rollback()
             log.info("batch rejected", extra={"rejected": len(rejected)})
