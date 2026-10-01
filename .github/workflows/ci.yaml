@@ -1,0 +1,102 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: session_lens
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -ptest" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DATABASE_URL: mysql+asyncmy://root:test@127.0.0.1:3306/session_lens?charset=utf8mb4
+      S3_ENDPOINT_URL: http://127.0.0.1:9000
+      S3_BUCKET: session-lens
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+    steps:
+      - uses: actions/checkout@v4
+      # Same object store as docker-compose (SeaweedFS), so CI matches local runs. Service
+      # containers cannot pass `server ...` arguments, so it is started by hand.
+      - name: Start SeaweedFS and create bucket
+        env:
+          AWS_ACCESS_KEY_ID: minioadmin
+          AWS_SECRET_ACCESS_KEY: minioadmin
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          cat > "$RUNNER_TEMP/s3.json" <<'JSON'
+          {"identities":[{"name":"session-lens","credentials":[{"accessKey":"minioadmin","secretKey":"minioadmin"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+          JSON
+          docker run -d --name s3 -p 9000:8333             -v "$RUNNER_TEMP/s3.json:/etc/seaweedfs/s3.json:ro"             chrislusf/seaweedfs:latest             server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -ip.bind=0.0.0.0
+          ready=0
+          for i in $(seq 1 30); do
+            if aws --endpoint-url http://127.0.0.1:9000 s3api list-buckets >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != 1 ]; then
+            echo "SeaweedFS did not become ready" >&2
+            docker logs s3 >&2
+            exit 1
+          fi
+          aws --endpoint-url http://127.0.0.1:9000 s3api create-bucket --bucket session-lens
+          aws --endpoint-url http://127.0.0.1:9000 s3api put-bucket-lifecycle-configuration             --bucket session-lens             --lifecycle-configuration '{"Rules":[{"ID":"expire-recordings","Status":"Enabled","Filter":{"Prefix":"recordings/"},"Expiration":{"Days":30}}]}'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync
+      - name: Ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy src
+      - name: Pytest
+        run: uv run pytest
+
+  image:
+    # Only tagged releases (v0.1.0) are published. Flux's ImagePolicy picks the
+    # highest semver tag, so the image is tagged 0.1.0, with no "v".
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/jmwri/session-lens
+          tags: type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -18,12 +18,17 @@ services:
       retries: 20
 
   # S3-compatible object store for raw recordings (DigitalOcean Spaces in the cluster).
+<<<<<<< HEAD
   # NOTE: SeaweedFS accepts and returns the 30-day lifecycle rule (so `session-lens check-bucket`
   # passes) but does NOT enforce it: `fs.configure` shows no TTL. Locally, objects never expire;
   # the app's expired_at marking and read_raw behave the same either way. Only Spaces enforces
   # the rule. SeaweedFS needs path-style addressing (S3_ADDRESSING_STYLE=path if "auto" fails).
   s3:
     image: chrislusf/seaweedfs:4.48
+=======
+  s3:
+    image: chrislusf/seaweedfs:latest
+>>>>>>> feat/deploy
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"]
     ports:
       - "${S3_PORT:-9000}:8333"  # matches the S3_ENDPOINT_URL default
@@ -38,9 +43,14 @@ services:
       timeout: 5s
       retries: 30
 
+<<<<<<< HEAD
   # One-shot: creates the bucket, applies the 30-day expiry rule on recordings/ (the same rule
   # terrawost sets on the Spaces bucket) and reads it back, failing loudly if the server does
   # not report it. Safe to re-run.
+=======
+  # One-shot: creates the bucket and a 30-day expiry rule on the recordings/ prefix, the same
+  # rule terrawost sets on the Spaces bucket. Safe to re-run.
+>>>>>>> feat/deploy
   s3-init:
     image: amazon/aws-cli:latest
     depends_on:
@@ -50,6 +60,7 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_DEFAULT_REGION: us-east-1
+<<<<<<< HEAD
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -63,6 +74,52 @@ services:
           exit 1
         fi
         echo "lifecycle rule applied: recordings/ expire after $$days days (not enforced by SeaweedFS)"
+=======
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        aws --endpoint-url http://s3:8333 s3api create-bucket --bucket session-lens 2>/dev/null || true
+        aws --endpoint-url http://s3:8333 s3api put-bucket-lifecycle-configuration --bucket session-lens           --lifecycle-configuration '{"Rules":[{"ID":"expire-recordings","Status":"Enabled","Filter":{"Prefix":"recordings/"},"Expiration":{"Days":30}}]}'
+
+  # --- deploy: app services built from the Dockerfile (`docker compose up --build`) ---
+
+  migrate:
+    build: .
+    command: ["session-lens", "migrate"]
+    environment: &app-env
+      DATABASE_URL: mysql+asyncmy://session_lens:session_lens@mysql:3306/session_lens?charset=utf8mb4
+      API_TOKEN: ${API_TOKEN:-dev-token}
+      # Local only: the app refuses a default API_TOKEN without this. Never set it in k8s.
+      ALLOW_INSECURE_DEV: "1"
+      ENRICHER: ${ENRICHER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      S3_ENDPOINT_URL: http://s3:8333
+      S3_REGION: us-east-1
+      S3_BUCKET: session-lens
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      RAW_RETENTION_DAYS: "30"
+    depends_on:
+      mysql: {condition: service_healthy}
+      s3: {condition: service_healthy}
+      s3-init: {condition: service_completed_successfully}
+    restart: "no"
+
+  api:
+    build: .
+    command: ["session-lens", "api"]
+    environment: *app-env
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+
+  worker:
+    build: .
+    command: ["session-lens", "worker"]
+    environment: *app-env
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+>>>>>>> feat/deploy
 
 configs:
   s3-config:
