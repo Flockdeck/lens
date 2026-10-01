@@ -30,5 +30,6 @@ ENV DATA_DIR=/data
 VOLUME /data
 USER 65532:65532
 EXPOSE 8000
-# Default is the API; the worker service overrides the command.
-CMD ["session-lens", "api"]
+# Default is the API. It must bind 0.0.0.0 inside the container to be reachable through a
+# published port (publish to 127.0.0.1 on the host to keep it local). The worker overrides this.
+CMD ["session-lens", "api", "--host", "0.0.0.0"]
