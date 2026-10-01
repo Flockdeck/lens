@@ -8,9 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.mysql import LONGBLOB
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.types import LargeBinary
 
 
 def _now() -> datetime:
@@ -46,15 +45,29 @@ class Batch(Base):
 
 
 class RawRecording(Base):
-    """The uploaded file, zstd-compressed. Deleted after the retention period."""
+    """An uploaded file. Its lines live in `recording_lines`, one row per line, in order.
+    Deleted after the retention period (the lines go with it)."""
 
     __tablename__ = "raw_recordings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256 hex of the original bytes
     size_bytes: Mapped[int] = mapped_column(Integer)  # original size
-    data: Mapped[bytes] = mapped_column(LargeBinary().with_variant(LONGBLOB(), "mysql"))
+    line_count: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+
+
+class RecordingLine(Base):
+    """One line of a recording, verbatim (including a crash-cut last line), in file order.
+    Rows are small (a line is at most about 100 KiB), so no large packets are needed."""
+
+    __tablename__ = "recording_lines"
+
+    raw_id: Mapped[int] = mapped_column(
+        ForeignKey("raw_recordings.id", ondelete="CASCADE"), primary_key=True
+    )
+    line_no: Mapped[int] = mapped_column(Integer, primary_key=True)  # 1-based position in the file
+    text: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"))
 
 
 class BatchItem(Base):
