@@ -1,6 +1,8 @@
 import httpx
 import pytest
 
+from tests.api.standins import InMemoryStore
+
 
 async def test_probes_need_no_token(client: httpx.AsyncClient) -> None:
     anon = {"Authorization": ""}
@@ -32,12 +34,20 @@ async def test_static_ui_hides_python_sources(client: httpx.AsyncClient) -> None
     assert (await client.get("/__init__.py", headers=anon)).status_code == 404
 
 
-async def test_readyz_503_when_db_unreachable(database_url: str) -> None:
+async def test_readyz_503_when_store_down(client: httpx.AsyncClient, store: InMemoryStore) -> None:
+    store.healthy = False
+    assert (await client.get("/readyz")).status_code == 503
+    assert (await client.get("/healthz")).status_code == 200
+
+
+async def test_readyz_503_when_db_unreachable(database_url: str, store: InMemoryStore) -> None:
     from session_lens.api.app import create_app
+    from session_lens.api.deps import get_store
     from session_lens.config import Settings
 
     bad = database_url.rsplit("@", 1)[0] + "@127.0.0.1:1/none"
     app = create_app(Settings(database_url=bad, api_token="t"))
+    app.dependency_overrides[get_store] = lambda: store
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:

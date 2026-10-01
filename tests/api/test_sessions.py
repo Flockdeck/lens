@@ -3,17 +3,18 @@ from typing import Any
 
 import httpx
 import pytest
-import zstandard
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.api.deps import get_enricher
 from session_lens.db.models import Enrichment, RawRecording
 from session_lens.db.models import Session as SessionRow
+from tests.api.standins import FakeQueue, InMemoryStore
 
 
 async def seed(
     db: AsyncSession,
+    store: InMemoryStore,
     recording: str,
     *,
     project: str = "proj",
@@ -28,16 +29,10 @@ async def seed(
 ) -> SessionRow:
     raw_row = None
     if raw is not None:
-        raw_row = RawRecording(
-            content_hash="h" * 64,
-            size_bytes=len(raw),
-            data=zstandard.ZstdCompressor().compress(raw),
-        )
-        db.add(raw_row)
-        await db.flush()
+        raw_row = await FakeQueue().store_raw(db, store, raw)
     row = SessionRow(
         recording_session=recording,
-        content_hash="h" * 64,
+        content_hash=raw_row.content_hash if raw_row else "h" * 64,
         project=project,
         agent=agent,
         model=model,
@@ -71,10 +66,13 @@ def names(resp: httpx.Response) -> list[str]:
     return [i["recording_session"] for i in resp.json()["items"]]
 
 
-async def test_list_filters_sort_paging(client: httpx.AsyncClient, db: AsyncSession) -> None:
-    await seed(db, "s1", project="a", started=datetime(2026, 1, 1))
+async def test_list_filters_sort_paging(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore
+) -> None:
+    await seed(db, store, "s1", project="a", started=datetime(2026, 1, 1))
     await seed(
         db,
+        store,
         "s2",
         project="a",
         agent="codex",
@@ -82,12 +80,12 @@ async def test_list_filters_sort_paging(client: httpx.AsyncClient, db: AsyncSess
         category="docs",
         started=datetime(2026, 1, 5),
     )
-    await seed(db, "s3", project="b", outcome=None, started=datetime(2026, 1, 9))
+    await seed(db, store, "s3", project="b", outcome=None, started=datetime(2026, 1, 9))
 
     body = (await client.get("/sessions")).json()
     assert body["total"] == 3
     assert [i["recording_session"] for i in body["items"]] == ["s3", "s2", "s1"]
-    assert body["items"][0]["outcome"] is None and body["items"][0]["has_raw"] is False
+    assert body["items"][0]["outcome"] is None and body["items"][0]["raw_available"] is False
     assert body["items"][1]["duration_seconds"] == 10.0
 
     assert names(await client.get("/sessions", params={"project": "a"})) == ["s2", "s1"]
@@ -104,8 +102,10 @@ async def test_list_filters_sort_paging(client: httpx.AsyncClient, db: AsyncSess
     assert (await client.get("/sessions", params={"sort": "bogus"})).status_code == 422
 
 
-async def test_get_session_detail(client: httpx.AsyncClient, db: AsyncSession) -> None:
-    row = await seed(db, "s1")
+async def test_get_session_detail(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore
+) -> None:
+    row = await seed(db, store, "s1")
     body = (await client.get(f"/sessions/{row.id}")).json()
     assert body["warnings"] == ["w"]
     assert body["metrics"]["tool_calls"] == 4
@@ -113,20 +113,52 @@ async def test_get_session_detail(client: httpx.AsyncClient, db: AsyncSession) -
     assert (await client.get("/sessions/9999")).status_code == 404
 
 
-async def test_events_paging_and_gone(
-    client: httpx.AsyncClient, db: AsyncSession, make_jsonl: Any
+async def test_events_paging(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
 ) -> None:
-    row = await seed(db, "s1", raw=make_jsonl(1, 2, 3, 4, 5))
-    page = (await client.get(f"/sessions/{row.id}/events", params={"limit": 2})).json()
-    assert [e["seq"] for e in page["events"]] == [1, 2]
+    row = await seed(db, store, "s1", raw=make_jsonl(1, 2, 3, 4, 5))
+    url = f"/sessions/{row.id}/events"
+    page = (await client.get(url, params={"limit": 2})).json()
+    assert [e["seq"] for e in page["items"]] == [1, 2]
     assert page["next_after_seq"] == 2
-    tail = await client.get(f"/sessions/{row.id}/events", params={"after_seq": 4, "limit": 10})
-    assert [e["seq"] for e in tail.json()["events"]] == [5]
-    assert tail.json()["next_after_seq"] is None
 
-    gone = await seed(db, "s2")
-    assert (await client.get(f"/sessions/{gone.id}/events")).status_code == 410
+    nxt = (await client.get(url, params={"limit": 2, "after_seq": 2})).json()
+    assert [e["seq"] for e in nxt["items"]] == [3, 4]
+    assert nxt["next_after_seq"] == 4
+
+    tail = (await client.get(url, params={"after_seq": 4, "limit": 10})).json()
+    assert [e["seq"] for e in tail["items"]] == [5]
+    assert tail["next_after_seq"] is None
+
+    exact = (await client.get(url, params={"after_seq": 3, "limit": 2})).json()
+    assert [e["seq"] for e in exact["items"]] == [4, 5]
+    assert exact["next_after_seq"] is None
+
     assert (await client.get("/sessions/9999/events")).status_code == 404
+
+
+async def test_events_and_enrich_410_when_raw_gone(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
+) -> None:
+    no_raw = await seed(db, store, "s1")
+    assert (await client.get(f"/sessions/{no_raw.id}/events")).status_code == 410
+    assert (await client.post(f"/sessions/{no_raw.id}/enrich")).status_code == 410
+    assert (await client.get(f"/sessions/{no_raw.id}")).json()["raw_available"] is False
+
+    # Row marked expired by `session-lens cleanup`.
+    expired = await seed(db, store, "s2", raw=make_jsonl(1))
+    await db.execute(update(RawRecording).values(expired_at=datetime(2026, 2, 1)))
+    await db.commit()
+    assert (await client.get(f"/sessions/{expired.id}")).json()["raw_available"] is False
+    listed = (await client.get("/sessions")).json()["items"]
+    assert all(i["raw_available"] is False for i in listed)
+    assert (await client.get(f"/sessions/{expired.id}/events")).status_code == 410
+
+    # Object removed by the bucket lifecycle rule before cleanup ran: still a 410.
+    lost = await seed(db, store, "s3", raw=make_jsonl(1))
+    assert (await client.get(f"/sessions/{lost.id}")).json()["raw_available"] is True
+    store.objects.clear()
+    assert (await client.get(f"/sessions/{lost.id}/events")).status_code == 410
 
 
 class _Result:
@@ -158,45 +190,54 @@ def use_enricher(client: httpx.AsyncClient, enricher: _Enricher) -> None:
 
 
 async def test_reenrich_overwrites(
-    client: httpx.AsyncClient, db: AsyncSession, make_jsonl: Any
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
 ) -> None:
     use_enricher(client, _Enricher())
-    row = await seed(db, "s1", raw=make_jsonl(1, 2))
+    row = await seed(db, store, "s1", raw=make_jsonl(1, 2))
     body = (await client.post(f"/sessions/{row.id}/enrich")).json()
     assert body["enrichment"]["summary"] == "new summary"
     assert body["outcome"] == "stuck"
     assert len((await db.execute(select(Enrichment))).scalars().all()) == 1
 
-    no_raw = await seed(db, "s2", outcome=None)
+    no_raw = await seed(db, store, "s2", outcome=None)
     assert (await client.post(f"/sessions/{no_raw.id}/enrich")).status_code == 410
     assert (await client.post("/sessions/9999/enrich")).status_code == 404
 
 
 @pytest.mark.parametrize(("retryable", "code"), [(True, 503), (False, 502)])
 async def test_reenrich_failure_codes(
-    client: httpx.AsyncClient, db: AsyncSession, make_jsonl: Any, retryable: bool, code: int
+    client: httpx.AsyncClient,
+    db: AsyncSession,
+    store: InMemoryStore,
+    make_jsonl: Any,
+    retryable: bool,
+    code: int,
 ) -> None:
     from session_lens.enrich.base import EnrichmentError
 
     err = EnrichmentError("failed")
     err.retryable = retryable
     use_enricher(client, _Enricher(err))
-    row = await seed(db, "s1", raw=make_jsonl(1))
+    row = await seed(db, store, "s1", raw=make_jsonl(1))
     assert (await client.post(f"/sessions/{row.id}/enrich")).status_code == code
 
 
-async def test_delete_session(client: httpx.AsyncClient, db: AsyncSession, make_jsonl: Any) -> None:
-    row = await seed(db, "s1", raw=make_jsonl(1))
+async def test_delete_session(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
+) -> None:
+    row = await seed(db, store, "s1", raw=make_jsonl(1))
     assert (await client.delete(f"/sessions/{row.id}")).status_code == 204
     assert (await client.get(f"/sessions/{row.id}")).status_code == 404
     assert (await db.execute(select(Enrichment))).first() is None
     assert (await db.execute(select(RawRecording))).first() is None
+    assert store.objects == {}
     assert (await client.delete(f"/sessions/{row.id}")).status_code == 404
 
 
-async def test_stats(client: httpx.AsyncClient, db: AsyncSession) -> None:
+async def test_stats(client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore) -> None:
     await seed(
         db,
+        store,
         "s1",
         started=datetime(2026, 1, 5),
         frustration=0.2,
@@ -208,6 +249,7 @@ async def test_stats(client: httpx.AsyncClient, db: AsyncSession) -> None:
     )
     await seed(
         db,
+        store,
         "s2",
         started=datetime(2026, 1, 6),
         outcome="stuck",
@@ -218,7 +260,9 @@ async def test_stats(client: httpx.AsyncClient, db: AsyncSession) -> None:
             "permission": {"prompts": 4, "denied": 3},
         },
     )
-    await seed(db, "s3", agent="codex", started=datetime(2026, 1, 13), outcome=None, metrics={})
+    await seed(
+        db, store, "s3", agent="codex", started=datetime(2026, 1, 13), outcome=None, metrics={}
+    )
 
     day = (await client.get("/stats/trends")).json()
     assert [d["bucket"] for d in day] == ["2026-01-05", "2026-01-06", "2026-01-13"]

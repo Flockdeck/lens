@@ -5,13 +5,12 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-import zstandard
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import ColumnElement, delete, func, select
+from sqlalchemy import ColumnElement, delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
-from session_lens.api.deps import get_db, get_enricher
+from session_lens.api.deps import QueueApi, get_db, get_enricher, get_queue, get_store
 from session_lens.api.schemas import (
     EnrichmentOut,
     EventsPage,
@@ -24,6 +23,7 @@ from session_lens.db.models import Session as SessionRow
 
 if TYPE_CHECKING:
     from session_lens.enrich.base import Enricher
+    from session_lens.storage.base import RecordingStore
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 log = logging.getLogger("session_lens.api.sessions")
@@ -43,7 +43,7 @@ def _naive_utc(value: datetime | None) -> datetime | None:
     return value
 
 
-def _summary_fields(row: SessionRow) -> dict[str, Any]:
+def _summary_fields(row: SessionRow, raw_available: bool) -> dict[str, Any]:
     enr = row.enrichment
     return {
         "id": row.id,
@@ -57,7 +57,7 @@ def _summary_fields(row: SessionRow) -> dict[str, Any]:
         "completeness": row.completeness,
         "duration_seconds": row.metrics.get("duration_seconds"),
         "tool_calls": row.metrics.get("tool_calls"),
-        "has_raw": row.raw_id is not None,
+        "raw_available": raw_available,
         "created_at": row.created_at,
         "category": enr.category if enr else None,
         "outcome": enr.outcome if enr else None,
@@ -66,9 +66,13 @@ def _summary_fields(row: SessionRow) -> dict[str, Any]:
     }
 
 
-def _detail(row: SessionRow) -> SessionDetail:
+def _raw_ok() -> ColumnElement[bool]:
+    return exists().where(RawRecording.id == SessionRow.raw_id, RawRecording.expired_at.is_(None))
+
+
+def _detail_of(row: SessionRow, raw_available: bool) -> SessionDetail:
     return SessionDetail(
-        **_summary_fields(row),
+        **_summary_fields(row, raw_available),
         metrics=row.metrics,
         risky_actions=row.risky_actions,
         files_touched=row.files_touched,
@@ -79,29 +83,38 @@ def _detail(row: SessionRow) -> SessionDetail:
     )
 
 
-async def _get_row(db: AsyncSession, session_id: int) -> SessionRow:
-    row = (
+async def _get_row(db: AsyncSession, session_id: int) -> tuple[SessionRow, bool]:
+    result = (
         await db.execute(
-            select(SessionRow)
+            select(SessionRow, _raw_ok())
             .where(SessionRow.id == session_id)
             .options(selectinload(SessionRow.enrichment))
             .execution_options(populate_existing=True)
         )
-    ).scalar_one_or_none()
-    if row is None:
+    ).first()
+    if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
-    return row
+    return result[0], bool(result[1])
 
 
-def _decompress(data: bytes, size: int) -> bytes:
-    return zstandard.ZstdDecompressor().decompress(data, max_output_size=size + 1)
+async def _detail(db: AsyncSession, session_id: int) -> SessionDetail:
+    row, available = await _get_row(db, session_id)
+    return _detail_of(row, available)
 
 
-async def _load_raw(db: AsyncSession, row: SessionRow) -> bytes:
-    raw = await db.get(RawRecording, row.raw_id) if row.raw_id is not None else None
-    if raw is None:
-        raise HTTPException(status.HTTP_410_GONE, "raw recording has been deleted")
-    return await asyncio.to_thread(_decompress, raw.data, raw.size_bytes)
+async def _read_raw(
+    db: AsyncSession, queue: QueueApi, store: "RecordingStore", row: SessionRow
+) -> bytes:
+    from session_lens.storage.base import RecordingExpired
+
+    gone = HTTPException(status.HTTP_410_GONE, "raw recording has expired or been deleted")
+    if row.raw_id is None:
+        raise gone
+    try:
+        return await queue.read_raw(db, store, row.raw_id)
+    except RecordingExpired as exc:
+        await db.commit()  # read_raw marks the row expired
+        raise gone from exc
 
 
 @router.get("", response_model=SessionList)
@@ -145,40 +158,48 @@ async def list_sessions(
     rows = (
         (
             await db.execute(
-                base.options(contains_eager(SessionRow.enrichment))
+                base.add_columns(_raw_ok())
+                .options(contains_eager(SessionRow.enrichment))
                 .order_by(*ordering)
                 .limit(limit)
                 .offset(offset)
             )
         )
-        .scalars()
+        .unique()
         .all()
     )
-    return SessionList(total=total, items=[SessionSummary(**_summary_fields(r)) for r in rows])
+    return SessionList(
+        total=total,
+        items=[SessionSummary(**_summary_fields(r, bool(ok))) for r, ok in rows],
+    )
 
 
 @router.get("/{session_id}", response_model=SessionDetail)
 async def get_session(
     session_id: int, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> SessionDetail:
-    return _detail(await _get_row(db, session_id))
+    return await _detail(db, session_id)
 
 
 @router.get("/{session_id}/events", response_model=EventsPage)
 async def get_events(
     session_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
+    queue: Annotated[QueueApi, Depends(get_queue)],
+    store: Annotated["RecordingStore", Depends(get_store)],
     after_seq: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
 ) -> EventsPage:
-    from session_lens.recording.parser import iter_events
+    from session_lens.recording.parser import parse
 
-    row = await _get_row(db, session_id)
-    data = await _load_raw(db, row)
-    events = await asyncio.to_thread(iter_events, data, after_seq, limit)
-    dumped = [e.model_dump(mode="json") for e in events]
-    next_seq = dumped[-1]["seq"] if len(dumped) >= limit else None
-    return EventsPage(events=dumped, next_after_seq=next_seq)
+    row, _ = await _get_row(db, session_id)
+    data = await _read_raw(db, queue, store, row)
+    events = await asyncio.to_thread(parse, data)
+    later = [e for e in events if e.seq > after_seq]
+    page = later[:limit]
+    dumped = [e.model_dump(by_alias=True, mode="json") for e in page]
+    more = len(later) > limit
+    return EventsPage(items=dumped, next_after_seq=page[-1].seq if more else None)
 
 
 @router.post("/{session_id}/enrich", response_model=SessionDetail)
@@ -186,17 +207,14 @@ async def reenrich(
     session_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
     enricher: Annotated["Enricher", Depends(get_enricher)],
+    queue: Annotated[QueueApi, Depends(get_queue)],
+    store: Annotated["RecordingStore", Depends(get_store)],
 ) -> SessionDetail:
     from session_lens.enrich.base import EnrichmentError
-    from session_lens.recording.parser import (
-        EmptyRecording,
-        UnsupportedVersion,
-        analyze,
-        parse,
-    )
+    from session_lens.recording.parser import EmptyRecording, UnsupportedVersion, analyze, parse
 
-    row = await _get_row(db, session_id)
-    data = await _load_raw(db, row)
+    row, _ = await _get_row(db, session_id)
+    data = await _read_raw(db, queue, store, row)
     try:
         analysis = await asyncio.to_thread(lambda: analyze(parse(data)))
     except (UnsupportedVersion, EmptyRecording) as exc:
@@ -209,45 +227,24 @@ async def reenrich(
         )
         code = status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_502_BAD_GATEWAY
         raise HTTPException(code, "enrichment failed") from exc
-
-    values: dict[str, Any] = {
-        "prompt_version": result.prompt_version,
-        "model": result.model,
-        "summary": result.summary,
-        "category": result.category,
-        "outcome": result.outcome,
-        "frustration": result.frustration,
-        "stuck_points": [p.model_dump(mode="json") for p in result.stuck_points],
-        "prompt_feedback": result.prompt_feedback,
-        "risk_notes": [n.model_dump(mode="json") for n in result.risk_notes],
-        "input_tokens": result.input_tokens,
-        "output_tokens": result.output_tokens,
-    }
-    if row.enrichment is None:
-        row.enrichment = Enrichment(**values)
-    else:
-        for key, value in values.items():
-            setattr(row.enrichment, key, value)
-        row.enrichment.created_at = datetime.now(UTC).replace(tzinfo=None)
+    await queue.upsert_enrichment(db, session_id, result)
     await db.commit()
     log.info("session re-enriched", extra={"session_id": session_id})
-    return _detail(await _get_row(db, session_id))
+    return await _detail(db, session_id)
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_session(session_id: int, db: Annotated[AsyncSession, Depends(get_db)]) -> Response:
-    row = await _get_row(db, session_id)
-    raw_id = row.raw_id
+async def delete_session(
+    session_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    queue: Annotated[QueueApi, Depends(get_queue)],
+    store: Annotated["RecordingStore", Depends(get_store)],
+) -> Response:
+    row, _ = await _get_row(db, session_id)
+    content_hash = row.content_hash
     await db.execute(delete(Enrichment).where(Enrichment.session_id == session_id))
     await db.execute(delete(SessionRow).where(SessionRow.id == session_id))
-    if raw_id is not None:
-        still_used = (
-            await db.execute(
-                select(func.count()).select_from(SessionRow).where(SessionRow.raw_id == raw_id)
-            )
-        ).scalar_one()
-        if not still_used:
-            await db.execute(delete(RawRecording).where(RawRecording.id == raw_id))
+    await queue.delete_raws_for_hash(db, store, content_hash)
     await db.commit()
     log.info("session deleted", extra={"session_id": session_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)

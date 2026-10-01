@@ -1,6 +1,6 @@
 """Unauthenticated probes and Prometheus metrics."""
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
@@ -8,8 +8,11 @@ from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Gauge, gen
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.deps import get_db
+from session_lens.api.deps import get_db, get_store
 from session_lens.db.models import BatchItem
+
+if TYPE_CHECKING:
+    from session_lens.storage.base import RecordingStore
 
 router = APIRouter(tags=["health"])
 
@@ -20,9 +23,13 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/readyz")
-async def readyz(db: Annotated[AsyncSession, Depends(get_db)]) -> JSONResponse:
+async def readyz(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    store: Annotated["RecordingStore", Depends(get_store)],
+) -> JSONResponse:
     try:
         await db.execute(text("SELECT 1"))
+        await store.ping()
     except Exception:
         return JSONResponse({"status": "unavailable"}, status_code=503)
     return JSONResponse({"status": "ok"})

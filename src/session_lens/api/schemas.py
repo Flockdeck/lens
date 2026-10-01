@@ -60,7 +60,7 @@ class SessionSummary(BaseModel):
     completeness: str
     duration_seconds: float | None
     tool_calls: int | None
-    has_raw: bool
+    raw_available: bool
     created_at: datetime
     category: str | None
     outcome: str | None
@@ -82,7 +82,7 @@ class SessionDetail(SessionSummary):
 
 
 class EventsPage(BaseModel):
-    events: list[dict[str, Any]]
+    items: list[dict[str, Any]]
     next_after_seq: int | None  # pass as after_seq for the next page; None when exhausted
 
 

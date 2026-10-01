@@ -9,10 +9,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.config import Settings
-from session_lens.db.models import Batch, RawRecording
+from session_lens.db.models import Batch
 
 if TYPE_CHECKING:
-    from session_lens.enrich.base import Enricher
+    from session_lens.enrich.base import Enricher, EnrichmentResult
+    from session_lens.storage.base import RecordingStore
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -43,28 +44,38 @@ def require_token(
 
 
 class QueueApi(Protocol):
-    """The slice of `worker/queue.py` the API uses (see docs/contracts.md)."""
+    """The slice of `worker/` the API uses (see docs/contracts.md)."""
 
     async def create_batch(
-        self, session: AsyncSession, files: Sequence[tuple[str, RawRecording]]
+        self, session: AsyncSession, store: "RecordingStore", files: Sequence[tuple[str, bytes]]
     ) -> Batch: ...
 
     async def retry_failed(self, session: AsyncSession, batch_id: int) -> object: ...
 
     async def cancel_batch(self, session: AsyncSession, batch_id: int) -> object: ...
 
-    async def store_raw(self, session: AsyncSession, data: bytes) -> RawRecording: ...
+    async def read_raw(
+        self, session: AsyncSession, store: "RecordingStore", raw_id: int
+    ) -> bytes: ...
+
+    async def delete_raws_for_hash(
+        self, session: AsyncSession, store: "RecordingStore", content_hash: str
+    ) -> int: ...
+
+    async def upsert_enrichment(
+        self, session: AsyncSession, session_id: int, result: "EnrichmentResult"
+    ) -> None: ...
 
 
 class _WorkerQueue:
-    """Adapter over the worker module, imported lazily so the API can load without it."""
+    """Adapter over the worker modules, imported lazily so the API can load without them."""
 
     async def create_batch(
-        self, session: AsyncSession, files: Sequence[tuple[str, RawRecording]]
+        self, session: AsyncSession, store: "RecordingStore", files: Sequence[tuple[str, bytes]]
     ) -> Batch:
         from session_lens.worker import queue
 
-        result: Batch = await queue.create_batch(session, files)
+        result: Batch = await queue.create_batch(session, store, files)
         return result
 
     async def retry_failed(self, session: AsyncSession, batch_id: int) -> object:
@@ -77,15 +88,40 @@ class _WorkerQueue:
 
         return await queue.cancel_batch(session, batch_id)
 
-    async def store_raw(self, session: AsyncSession, data: bytes) -> RawRecording:
+    async def read_raw(self, session: AsyncSession, store: "RecordingStore", raw_id: int) -> bytes:
         from session_lens.worker import queue
 
-        result: RawRecording = await queue.store_raw(session, data)
-        return result
+        data: bytes = await queue.read_raw(session, store, raw_id)
+        return data
+
+    async def delete_raws_for_hash(
+        self, session: AsyncSession, store: "RecordingStore", content_hash: str
+    ) -> int:
+        from session_lens.worker import queue
+
+        count: int = await queue.delete_raws_for_hash(session, store, content_hash)
+        return count
+
+    async def upsert_enrichment(
+        self, session: AsyncSession, session_id: int, result: "EnrichmentResult"
+    ) -> None:
+        from session_lens.worker.processor import upsert_enrichment
+
+        await upsert_enrichment(session, session_id, result)
 
 
 def get_queue() -> QueueApi:
     return _WorkerQueue()
+
+
+def get_store(request: Request) -> "RecordingStore":
+    """The object store, built once on first use and kept on the app."""
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        from session_lens.storage.base import build_store
+
+        store = request.app.state.store = build_store(request.app.state.settings)
+    return store
 
 
 def get_enricher(settings: Annotated[Settings, Depends(get_app_settings)]) -> "Enricher":

@@ -1,7 +1,7 @@
 """Batch submission and management."""
 
 import logging
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -11,13 +11,16 @@ from sqlalchemy.orm import selectinload
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 
-from session_lens.api.deps import QueueApi, get_app_settings, get_db, get_queue
+from session_lens.api.deps import QueueApi, get_app_settings, get_db, get_queue, get_store
 from session_lens.api.schemas import BatchAccepted, BatchItemOut, BatchOut, RejectedFile
 from session_lens.api.uploads import check_file
 from session_lens.config import Settings
-from session_lens.db.models import Batch, ItemStatus, RawRecording
+from session_lens.db.models import Batch, ItemStatus
 
 router = APIRouter(prefix="/batches", tags=["batches"])
+if TYPE_CHECKING:
+    from session_lens.storage.base import RecordingStore
+
 log = logging.getLogger("session_lens.api.batches")
 
 
@@ -60,6 +63,7 @@ async def submit_batch(
     db: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_app_settings)],
     queue: Annotated[QueueApi, Depends(get_queue)],
+    store: Annotated["RecordingStore", Depends(get_store)],
 ) -> BatchAccepted | JSONResponse:
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > settings.max_request_bytes:
@@ -70,7 +74,7 @@ async def submit_batch(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed multipart request") from exc
     try:
         parts = [p for p in form.getlist("files") if isinstance(p, UploadFile)]
-        stored: list[tuple[str, RawRecording]] = []
+        accepted: list[tuple[str, bytes]] = []
         rejected: list[RejectedFile] = []
         total = 0
         for part in parts:
@@ -82,8 +86,8 @@ async def submit_batch(
             if total > settings.max_request_bytes:
                 rejected.append(RejectedFile(filename=name, reason="request size limit exceeded"))
                 continue
-            stored.append((name, await queue.store_raw(db, outcome)))
-        if not stored:
+            accepted.append((name, outcome))
+        if not accepted:
             await db.rollback()
             log.info("batch rejected", extra={"rejected": len(rejected)})
             return JSONResponse(
@@ -93,16 +97,16 @@ async def submit_batch(
                 },
                 status_code=422,
             )
-        batch = await queue.create_batch(db, stored)
+        batch = await queue.create_batch(db, store, accepted)
         batch_id = batch.id
         await db.commit()
     finally:
         await form.close()
     log.info(
         "batch created",
-        extra={"batch_id": batch_id, "accepted": len(stored), "rejected": len(rejected)},
+        extra={"batch_id": batch_id, "accepted": len(accepted), "rejected": len(rejected)},
     )
-    return BatchAccepted(id=batch_id, accepted=[n for n, _ in stored], rejected=rejected)
+    return BatchAccepted(id=batch_id, accepted=[n for n, _ in accepted], rejected=rejected)
 
 
 @router.get("/{batch_id}", response_model=BatchOut)

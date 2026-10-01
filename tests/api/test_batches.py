@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.db.models import BatchItem, ItemStatus, RawRecording
+from tests.api.standins import InMemoryStore
 
 
 def files(*parts: tuple[str, bytes]) -> list[tuple[str, tuple[str, bytes, str]]]:
@@ -12,7 +13,7 @@ def files(*parts: tuple[str, bytes]) -> list[tuple[str, tuple[str, bytes, str]]]
 
 
 async def test_submit_mixed_batch(
-    client: httpx.AsyncClient, db: AsyncSession, make_jsonl: Any
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
 ) -> None:
     resp = await client.post(
         "/batches",
@@ -33,6 +34,7 @@ async def test_submit_mixed_batch(
     assert reasons["big.jsonl"].startswith("too large")
 
     assert len((await db.execute(select(RawRecording))).scalars().all()) == 2
+    assert len(store.objects) == 2
 
     detail = (await client.get(f"/batches/{body['id']}")).json()
     assert detail["counts"] == {"queued": 2, "running": 0, "done": 0, "failed": 0, "cancelled": 0}
@@ -47,11 +49,14 @@ async def test_submit_mixed_batch(
     }
 
 
-async def test_nothing_accepted_is_422(client: httpx.AsyncClient, db: AsyncSession) -> None:
+async def test_nothing_accepted_is_422(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore
+) -> None:
     resp = await client.post("/batches", files=files(("a.txt", b"x"), ("b.jsonl", b"")))
     assert resp.status_code == 422
     assert len(resp.json()["rejected"]) == 2
     assert (await db.execute(select(RawRecording))).first() is None
+    assert store.objects == {}
 
 
 async def test_no_files_field_is_422(client: httpx.AsyncClient) -> None:
