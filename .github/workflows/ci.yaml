@@ -24,8 +24,21 @@ jobs:
           --health-cmd="mysqladmin ping -ptest" --health-interval=5s --health-timeout=5s --health-retries=20
     env:
       DATABASE_URL: mysql+asyncmy://root:test@127.0.0.1:3306/session_lens?charset=utf8mb4
+      S3_ENDPOINT_URL: http://127.0.0.1:9000
+      S3_BUCKET: session-lens
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
     steps:
       - uses: actions/checkout@v4
+      # Service containers cannot pass `server /data`, so MinIO is started by hand.
+      - name: Start MinIO and create bucket
+        run: |
+          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin             minio/minio server /data
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:9000/minio/health/ready && break
+            sleep 2
+          done
+          docker run --rm --network host --entrypoint /bin/sh minio/mc -c             "mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb --ignore-existing local/session-lens"
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

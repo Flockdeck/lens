@@ -1,7 +1,9 @@
 # In: only haproxy, on the API port (the worker and cleanup job take no traffic).
-# Out: DNS, MySQL, and HTTPS to api.anthropic.com. A NetworkPolicy cannot name a
-# host, so MySQL (25060 DigitalOcean managed, 3306 plain) and 443 are ports to
-# public addresses, with the private ranges excluded.
+# Out: DNS, MySQL, and HTTPS to api.anthropic.com and the Spaces endpoint
+# (<region>.digitaloceanspaces.com). A NetworkPolicy cannot name a host (no FQDN
+# rules in the stock API), so MySQL (25060 DigitalOcean managed, 3306 plain) and
+# 443 are ports to public addresses, with the private ranges excluded. If the CNI
+# supports FQDN policies, narrow 443 to those two hosts.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

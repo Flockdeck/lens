@@ -36,6 +36,23 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: {name: session-lens-secret, key: databaseUrl}
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: s3EndpointUrl}
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: s3Region}
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: s3Bucket}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: s3AccessKey}
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: session-lens-secret, key: s3SecretKey}
+            - name: RAW_RETENTION_DAYS
+              value: "30"
             - name: API_TOKEN
               valueFrom:
                 secretKeyRef: {name: session-lens-secret, key: apiToken}
