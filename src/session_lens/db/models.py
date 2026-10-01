@@ -18,9 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.mysql import LONGBLOB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy.types import LargeBinary
 
 
 def utcnow() -> datetime:
@@ -56,15 +54,18 @@ class Batch(Base):
 
 
 class RawRecording(Base):
-    """The uploaded file, zstd-compressed. Deleted after the retention period."""
+    """One uploaded file: a row here, the bytes in the object store under `object_key`.
+    Objects expire from the bucket after the retention period (a bucket lifecycle rule);
+    `expired_at` records that the app now treats the file as gone."""
 
     __tablename__ = "raw_recordings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    content_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256 hex of the original bytes
-    size_bytes: Mapped[int] = mapped_column(Integer)  # original size
-    data: Mapped[bytes] = mapped_column(LargeBinary().with_variant(LONGBLOB(), "mysql"))
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)  # sha256 hex of the bytes
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    object_key: Mapped[str] = mapped_column(String(255), unique=True)  # recordings/YYYY/MM/<uuid>.jsonl
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
 
 class BatchItem(Base):
