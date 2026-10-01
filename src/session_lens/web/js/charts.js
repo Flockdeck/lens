@@ -1,4 +1,4 @@
-// Small SVG charts. Colours come from CSS classes so both themes work.
+// Small SVG charts. Colours come from CSS classes, so the stylesheet owns the palette.
 import { fmtNum } from "./lib.js";
 
 const NS = "http://www.w3.org/2000/svg";
@@ -40,7 +40,8 @@ function xLabels(root, buckets, xAt) {
   buckets.forEach((b, i) => {
     if (i % step === 0) {
       root.append(text(String(b).slice(5, 10) || String(b), {
-        x: xAt(i), y: H - 8, class: "tick", "text-anchor": "middle",
+        // The last label ends at the plot's right edge instead of running past the viewBox.
+        x: xAt(i), y: H - 8, class: "tick", "text-anchor": i + step >= buckets.length ? "end" : "middle",
       }));
     }
   });

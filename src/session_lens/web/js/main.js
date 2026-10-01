@@ -26,6 +26,7 @@ const TITLES = { submit: "Submit", batches: "Batch", sessions: "Sessions", insig
 
 async function route() {
   if (!getToken()) return showTokenPrompt();
+  nav.hidden = false;
   loadConfig();
   const { parts, query } = parseHash(location.hash);
   let name = parts[0] in ROUTES ? parts[0] : "submit";
@@ -74,11 +75,4 @@ window.addEventListener("hashchange", route);
 window.addEventListener("auth-required", () => showTokenPrompt("That token was not accepted."));
 
 document.getElementById("signout").addEventListener("click", () => { setToken(""); resetConfig(); showTokenPrompt(); });
-document.getElementById("theme").addEventListener("click", () => {
-  const root = document.documentElement;
-  const dark = (root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
-  root.dataset.theme = dark ? "light" : "dark";
-  try { localStorage.setItem("session-lens.theme", root.dataset.theme); } catch { /* ignore */ }
-});
-
 route();

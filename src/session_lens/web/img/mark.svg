@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="20" height="20" aria-hidden="true">
+  <!-- The mark as the site's wordmark draws it: two agents at rest on the
+       deck, one raised in the accent. Dark-ground colours only, because the
+       client, like the site, has no light variant. -->
+  <rect fill="#93A1A9" x="3" y="22" width="26" height="2.6" rx="1.3"/>
+  <circle fill="#93A1A9" cx="8.4" cy="18" r="3.4"/>
+  <circle fill="#93A1A9" cx="23.6" cy="18" r="3.4"/>
+  <path fill="#4FD1DB" d="M16 3.4L21 12.2H11Z"/>
+</svg>

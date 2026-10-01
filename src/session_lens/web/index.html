@@ -3,25 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <!-- Dark only, like the flockdeck.ai site and the Flockdeck phone client this is drawn from. -->
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0F1418">
   <meta name="referrer" content="no-referrer">
   <title>session-lens</title>
-  <script src="js/theme.js"></script>
-  <link rel="icon" href="img/flockdeck-mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/flockdeck-color.css">
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <!-- The two fonts are Flockdeck's own, served from this origin and asked for before the stylesheet finds it needs them. -->
+  <link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/flockdeck.css">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="topbar">
-    <a class="brand" href="#/submit"><img class="brand-mark" src="img/flockdeck-mark.svg" alt="" width="28" height="28"><span>session-lens</span></a>
+    <a class="brand" href="#/submit"><img class="brand-mark" src="img/mark.svg" alt="" width="22" height="22"><span class="wordmark">session-lens</span></a>
     <nav id="nav" aria-label="Main">
       <a href="#/submit">Submit</a>
       <a href="#/sessions">Sessions</a>
       <a href="#/insights">Insights</a>
     </nav>
     <div class="topbar-end">
-      <button id="theme" type="button" class="btn btn-quiet">Theme</button>
       <button id="signout" type="button" class="btn btn-quiet">Change token</button>
     </div>
   </header>
