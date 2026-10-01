@@ -1,13 +1,14 @@
-"""Fixtures for worker tests: a throwaway MySQL database per run, built by the real Alembic
-migrations, plus stand-ins for the recording/enrich modules until those components land."""
+"""Fixtures for worker tests. The throwaway MySQL database (`database_url`) comes from the shared
+tests/conftest.py; stores are in-memory, filesystem (tmp_path) or, when S3_ENDPOINT_URL is set
+and reachable, the optional S3 store."""
 
 from __future__ import annotations
 
-import importlib
-import sys
-import types
+import asyncio
+import os
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -17,50 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from session_lens.config import Settings, get_settings
 from session_lens.db.models import Base
 from session_lens.storage.base import RecordingStore, build_store
+from session_lens.storage.filesystem import FilesystemStore
 from session_lens.storage.memory import InMemoryStore
 
-
-def _ensure_module(name: str, **attrs: object) -> None:
-    """Register a minimal stand-in for `name` if the real module is not there (yet)."""
-    try:
-        importlib.import_module(name)
-    except ImportError:
-        module = types.ModuleType(name)
-        module.__dict__.update(attrs)
-        sys.modules[name] = module
-
-
-class _UnsupportedVersion(Exception): ...
-
-
-class _EmptyRecording(Exception): ...
-
-
-class _EnrichmentError(Exception):
-    def __init__(self, message: str = "", retryable: bool = True) -> None:
-        super().__init__(message)
-        self.retryable = retryable
-
-
-def _unavailable(*_: object) -> None:
-    raise NotImplementedError
-
-
-_ensure_module("session_lens.recording.models", Analysis=object)
-_ensure_module(
-    "session_lens.recording.parser",
-    UnsupportedVersion=_UnsupportedVersion,
-    EmptyRecording=_EmptyRecording,
-    parse=_unavailable,
-    analyze=_unavailable,
-)
-_ensure_module(
-    "session_lens.enrich.base",
-    EnrichmentResult=object,
-    EnrichmentError=_EnrichmentError,
-    Enricher=object,
-    build_enricher=_unavailable,
-)
 
 @pytest_asyncio.fixture
 async def sm(database_url: str) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
@@ -88,12 +48,67 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
-@pytest_asyncio.fixture
-async def s3_store() -> AsyncIterator[RecordingStore]:
-    """The real S3 path against the compose object store, under a prefix unique to the test."""
+@pytest.fixture
+def fs_store(tmp_path: Path) -> FilesystemStore:
+    return FilesystemStore(tmp_path / "data")
+
+
+async def _open_s3() -> AsyncIterator[RecordingStore]:
+    """The optional S3 store against a local S3-compatible server (`docker compose --profile s3
+    up`), under a prefix unique to the test. Skipped unless S3_ENDPOINT_URL is set and the
+    bucket is reachable."""
+    if not os.environ.get("S3_ENDPOINT_URL"):
+        pytest.skip("S3_ENDPOINT_URL not set")
+    pytest.importorskip("aioboto3")
     patch = pytest.MonkeyPatch()
     patch.setattr(get_settings(), "s3_prefix", f"recordings/test-{uuid.uuid4().hex[:8]}/")
-    s3 = build_store(Settings())
-    yield s3
-    await s3.aclose()
-    patch.undo()
+    s3 = build_store(Settings(storage="s3"))
+    try:
+        await s3.ping()
+    except Exception:
+        await s3.aclose()
+        patch.undo()
+        pytest.skip("S3 store not reachable")
+    try:
+        yield s3
+    finally:
+        await s3.aclose()
+        patch.undo()
+
+
+@pytest_asyncio.fixture
+async def s3_store() -> AsyncIterator[RecordingStore]:
+    async for s3 in _open_s3():
+        yield s3
+
+
+@pytest_asyncio.fixture(params=["filesystem", "s3"])
+async def any_store(
+    request: pytest.FixtureRequest, tmp_path: Path
+) -> AsyncIterator[RecordingStore]:
+    """Every real store implementation (s3 is skipped when not configured)."""
+    if request.param == "filesystem":
+        yield FilesystemStore(tmp_path / "data")
+    else:
+        async for s3 in _open_s3():
+            yield s3
+
+
+@pytest.fixture
+def s3_store_sync() -> None:
+    """For sync tests (the CLI): skip unless the optional S3 server is configured and reachable."""
+    if not os.environ.get("S3_ENDPOINT_URL"):
+        pytest.skip("S3_ENDPOINT_URL not set")
+    pytest.importorskip("aioboto3")
+
+    async def reachable() -> None:
+        store = build_store(Settings(storage="s3"))
+        try:
+            await store.ping()
+        finally:
+            await store.aclose()
+
+    try:
+        asyncio.run(reachable())
+    except Exception:
+        pytest.skip("S3 store not reachable")

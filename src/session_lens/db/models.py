@@ -58,8 +58,8 @@ class Batch(Base):
 
 class RawRecording(Base):
     """One uploaded file: a row here, the bytes in the object store under `object_key`.
-    Objects expire from the bucket after the retention period (a bucket lifecycle rule);
-    `expired_at` records that the app now treats the file as gone."""
+    The app deletes the file after the retention period (cleanup);
+    `expired_at` records that the file is gone."""
 
     __tablename__ = "raw_recordings"
 

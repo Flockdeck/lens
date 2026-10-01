@@ -1,9 +1,9 @@
-"""Retention reconciliation. Raw objects are expired by the bucket's lifecycle rule; this only
-brings the database in line (and trims old batches). Sessions, metrics and enrichments are kept.
-It never deletes objects and never lists the bucket.
+"""Retention, enforced by the app. Raw recordings older than `raw_retention_days` have their
+stored file deleted and their row marked expired (`expired_at`); finished batches older than 90
+days are deleted. Sessions, metrics and enrichments are kept.
 
-Runs under a MySQL named lock so two overlapping runs (e.g. a slow CronJob and the next one)
-cannot collide."""
+Runs under a MySQL named lock so two overlapping runs (several workers, or a manual run during
+the periodic one) cannot collide."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from sqlalchemy import delete, exists, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
+from session_lens.storage.base import RecordingStore
 
 log = logging.getLogger(__name__)
 
@@ -30,32 +31,51 @@ class CleanupResult:
     skipped: bool = False  # another cleanup run holds the lock
 
 
-async def expire_raws(sm: async_sessionmaker[AsyncSession], retention_days: int) -> int:
-    """Set expired_at on raw rows older than `retention_days`, CHUNK rows per statement."""
-    now = utcnow()
-    cutoff = now - timedelta(days=retention_days)
+async def expire_raws(
+    sm: async_sessionmaker[AsyncSession], store: RecordingStore, retention_days: int
+) -> int:
+    """For raw rows older than `retention_days` (0 = keep forever): delete the stored file
+    (best effort; a missing file is fine), then set expired_at. CHUNK rows at a time. A raw
+    that a queued or running item still needs is left alone until that item finishes."""
+    if retention_days <= 0:
+        return 0
+    cutoff = utcnow() - timedelta(days=retention_days)
+    needed = exists().where(
+        BatchItem.raw_id == RawRecording.id,
+        BatchItem.status.in_([ItemStatus.queued, ItemStatus.running]),
+    )
     total = 0
+    last_id = 0
     while True:
         async with sm() as db:
-            ids = (
-                (
-                    await db.execute(
-                        select(RawRecording.id)
-                        .where(RawRecording.expired_at.is_(None), RawRecording.created_at < cutoff)
-                        .order_by(RawRecording.id)
-                        .limit(CHUNK)
+            rows = (
+                await db.execute(
+                    select(RawRecording.id, RawRecording.object_key)
+                    .where(
+                        RawRecording.id > last_id,
+                        RawRecording.expired_at.is_(None),
+                        RawRecording.created_at < cutoff,
+                        ~needed,
                     )
+                    .order_by(RawRecording.id)
+                    .limit(CHUNK)
                 )
-                .scalars()
-                .all()
-            )
-            if not ids:
+            ).all()
+            if not rows:
                 return total
+            last_id = rows[-1].id
+            for row in rows:
+                try:
+                    await store.delete(row.object_key)
+                except Exception:
+                    log.warning("file delete failed", extra={"raw_id": row.id})
             await db.execute(
-                update(RawRecording).where(RawRecording.id.in_(ids)).values(expired_at=now)
+                update(RawRecording)
+                .where(RawRecording.id.in_([r.id for r in rows]))
+                .values(expired_at=utcnow())
             )
             await db.commit()
-            total += len(ids)
+            total += len(rows)
 
 
 async def delete_old_batches(
@@ -94,7 +114,9 @@ async def delete_old_batches(
             deleted += len(ids)
 
 
-async def run_cleanup(sm: async_sessionmaker[AsyncSession], retention_days: int) -> CleanupResult:
+async def run_cleanup(
+    sm: async_sessionmaker[AsyncSession], store: RecordingStore, retention_days: int
+) -> CleanupResult:
     # GET_LOCK is held by a connection, so keep one session open (never committed) for the run.
     async with sm() as lock_db:
         got = (await lock_db.execute(text("SELECT GET_LOCK(:n, 0)"), {"n": LOCK_NAME})).scalar()
@@ -103,7 +125,7 @@ async def run_cleanup(sm: async_sessionmaker[AsyncSession], retention_days: int)
             return CleanupResult(skipped=True)
         try:
             result = CleanupResult(
-                raws_expired=await expire_raws(sm, retention_days),
+                raws_expired=await expire_raws(sm, store, retention_days),
                 batches_deleted=await delete_old_batches(sm),
             )
         finally:

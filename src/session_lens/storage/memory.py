@@ -28,8 +28,5 @@ class InMemoryStore:
     async def ping(self) -> None:
         return None
 
-    async def expiry_days(self, prefix: str) -> int | None:
-        return None
-
     async def aclose(self) -> None:
         self.closed = True

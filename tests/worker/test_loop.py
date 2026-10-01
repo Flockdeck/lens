@@ -105,3 +105,89 @@ async def test_shutdown_past_the_grace_period_requeues_without_consuming_an_atte
         assert item.status == ItemStatus.queued
         assert item.attempts == 0 and item.locked_at is None and item.not_before is None
     assert (await get_batch(sm, batch_id)).status == BatchStatus.queued
+
+
+async def test_cleanup_loop_runs_with_the_worker_and_stops_with_it(sm, store, monkeypatch):
+    from session_lens.worker import loop as loop_module
+
+    calls = []
+
+    async def counting(sm_, store_, days):
+        calls.append(days)
+
+    monkeypatch.setattr(loop_module, "run_cleanup", counting)
+    before = asyncio.all_tasks()
+    worker = Running(sm, store, FakeEnricher(), cleanup_interval_seconds=3600, raw_retention_days=7)
+
+    async def ran():
+        return bool(calls)
+
+    await eventually(ran)  # runs immediately at startup, not after the first interval
+    assert calls == [7]
+    await worker.shutdown()
+    assert not (asyncio.all_tasks() - before - {asyncio.current_task()})  # nothing left running
+
+
+async def test_cleanup_loop_deletes_expired_files_then_stops(sm, store):
+    import asyncio
+    from datetime import timedelta
+
+    from sqlalchemy import select, update
+
+    from session_lens.db.models import BatchItem, ItemStatus, RawRecording, utcnow
+    from session_lens.worker.loop import cleanup_loop
+
+    _, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
+    async with sm() as db:
+        await db.execute(update(BatchItem).values(status=ItemStatus.done))
+        await db.execute(update(RawRecording).values(created_at=utcnow() - timedelta(days=40)))
+        await db.commit()
+    stop = asyncio.Event()
+    task = asyncio.create_task(cleanup_loop(sm, store, settings(), stop))
+
+    async def expired():
+        async with sm() as db:
+            return (await db.execute(select(RawRecording.expired_at))).scalar_one() is not None
+
+    await eventually(expired)
+    assert not store.objects  # the file was deleted
+    assert not task.done()  # sleeping until the next interval
+    stop.set()
+    await asyncio.wait_for(task, 5)  # stops promptly, not after the interval
+
+
+async def test_cleanup_loop_survives_a_failing_run(sm, store, monkeypatch):
+    import asyncio
+
+    from session_lens.worker import loop as loop_module
+
+    calls = 0
+
+    async def flaky(sm_, store_, days):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("database hiccup")
+
+    monkeypatch.setattr(loop_module, "run_cleanup", flaky)
+    stop = asyncio.Event()
+    task = asyncio.create_task(
+        loop_module.cleanup_loop(sm, store, settings(cleanup_interval_seconds=1), stop)
+    )
+
+    async def ran_twice():
+        return calls >= 2
+
+    await eventually(ran_twice)  # the failure did not end the loop
+    stop.set()
+    await asyncio.wait_for(task, 5)
+
+
+async def test_cleanup_interval_zero_disables_the_background_task(sm, store, monkeypatch):
+    from session_lens.worker import loop as loop_module
+
+    started = []
+    monkeypatch.setattr(loop_module, "cleanup_loop", lambda *a: started.append(1))
+    worker = Running(sm, store, FakeEnricher(), cleanup_interval_seconds=0)
+    await worker.shutdown()
+    assert started == []

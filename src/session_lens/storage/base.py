@@ -1,14 +1,15 @@
-"""Object storage for raw recordings."""
+"""Storage for raw recordings: the local filesystem by default, S3 optionally."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from session_lens.config import Settings
 
 
 class RecordingExpired(Exception):
-    """The recording's object is gone (lifecycle rule or deletion), or its row says so."""
+    """The recording's file is gone (retention or deletion), or its row says so."""
 
 
 class RecordingStore(Protocol):
@@ -23,12 +24,7 @@ class RecordingStore(Protocol):
         ...
 
     async def ping(self) -> None:
-        """For /readyz. Raises if the bucket is unreachable."""
-        ...
-
-    async def expiry_days(self, prefix: str) -> int | None:
-        """Days after which the bucket's lifecycle rules expire objects under `prefix`
-        (the shortest enabled rule that covers it), or None if there is no such rule."""
+        """For /readyz. Raises if the store is unusable."""
         ...
 
     async def aclose(self) -> None:
@@ -37,17 +33,21 @@ class RecordingStore(Protocol):
 
 
 def build_store(settings: Settings) -> RecordingStore:
-    """An S3 store (Spaces / MinIO / SeaweedFS). The client is opened lazily and kept for the
-    store's lifetime: call `await store.aclose()` on shutdown."""
-    from session_lens.storage.s3 import S3Store
+    """The configured store: the local filesystem (default) or S3. Call `await store.aclose()`
+    on shutdown."""
+    if settings.storage == "s3":
+        from session_lens.storage.s3 import S3Store
 
-    return S3Store(
-        endpoint_url=settings.s3_endpoint_url,
-        region=settings.s3_region,
-        bucket=settings.s3_bucket,
-        access_key=settings.s3_access_key,
-        secret_key=settings.s3_secret_key,
-        addressing_style=settings.s3_addressing_style,
-        connect_timeout=settings.s3_connect_timeout,
-        read_timeout=settings.s3_read_timeout,
-    )
+        return S3Store(
+            endpoint_url=settings.s3_endpoint_url,
+            region=settings.s3_region,
+            bucket=settings.s3_bucket,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            addressing_style=settings.s3_addressing_style,
+            connect_timeout=settings.s3_connect_timeout,
+            read_timeout=settings.s3_read_timeout,
+        )
+    from session_lens.storage.filesystem import FilesystemStore
+
+    return FilesystemStore(Path(settings.data_dir))

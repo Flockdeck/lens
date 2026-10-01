@@ -1,4 +1,6 @@
-"""S3-compatible store (DigitalOcean Spaces, MinIO, SeaweedFS) over aioboto3."""
+"""Optional S3-compatible store (SeaweedFS, MinIO, ...) over aioboto3. Recordings only leave the
+machine if you point this at a remote endpoint; the default store is the local filesystem.
+Install with `pip install session-lens[s3]`."""
 
 from __future__ import annotations
 
@@ -6,14 +8,16 @@ import asyncio
 from contextlib import AsyncExitStack
 from typing import Any, Literal
 
-import aioboto3  # type: ignore[import-untyped]
-from botocore.config import Config  # type: ignore[import-untyped]
-from botocore.exceptions import ClientError  # type: ignore[import-untyped]
-
 from session_lens.storage.base import RecordingExpired
 
 _MISSING_CODES = {"NoSuchKey", "404", "NotFound"}
 _NO_LIFECYCLE_CODES = {"NoSuchLifecycleConfiguration", "NoSuchLifecycle", "404"}
+
+
+def _error_code(exc: Exception) -> str | None:
+    response: dict[str, Any] = getattr(exc, "response", {})
+    code = response.get("Error", {}).get("Code")
+    return code if isinstance(code, str) else None
 
 
 class S3Store:
@@ -28,6 +32,13 @@ class S3Store:
         connect_timeout: float = 5.0,
         read_timeout: float = 30.0,
     ) -> None:
+        try:
+            import aioboto3  # type: ignore[import-untyped]
+            from botocore.config import Config  # type: ignore[import-untyped]
+            from botocore.exceptions import ClientError  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise RuntimeError("the s3 store needs aioboto3: install session-lens[s3]") from exc
+        self._client_error: type[Exception] = ClientError
         self._bucket = bucket
         self._session = aioboto3.Session()
         self._client_args: dict[str, Any] = {
@@ -75,8 +86,8 @@ class S3Store:
             response = await s3.get_object(Bucket=self._bucket, Key=key)
             async with response["Body"] as body:
                 data: bytes = await body.read()
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in _MISSING_CODES:
+        except self._client_error as exc:
+            if _error_code(exc) in _MISSING_CODES:
                 raise RecordingExpired(key) from None
             raise
         return data
@@ -93,8 +104,8 @@ class S3Store:
         s3 = await self._s3()
         try:
             response = await s3.get_bucket_lifecycle_configuration(Bucket=self._bucket)
-        except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") in _NO_LIFECYCLE_CODES:
+        except self._client_error as exc:
+            if _error_code(exc) in _NO_LIFECYCLE_CODES:
                 return None
             raise
         days: list[int] = []

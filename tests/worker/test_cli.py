@@ -42,26 +42,46 @@ def test_migrate_check_unreachable(monkeypatch, capsys):
     assert "unreachable" in capsys.readouterr().out
 
 
-def test_check_bucket_ok_and_strict(capsys):
-    assert run("check-bucket", "--strict") == 0  # s3-init applied a 30-day rule
-    assert "ok" in capsys.readouterr().out
+def test_check_storage_filesystem(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path / "data"))
+    assert run("check-storage") == 0
+    out = capsys.readouterr().out
+    assert "filesystem" in out and "probe ok" in out
+    assert list((tmp_path / "data").iterdir()) == []  # the probe object was removed
 
 
-def test_check_bucket_warns_and_strict_fails(monkeypatch, capsys):
-    monkeypatch.setattr(get_settings(), "s3_prefix", "unruled/")
-    assert run("check-bucket") == 0
-    assert "warning" in capsys.readouterr().out
-    assert run("check-bucket", "--strict") == 1
+def test_check_storage_fails_when_the_directory_is_unusable(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    monkeypatch.setattr(get_settings(), "data_dir", str(blocker / "data"))
+    assert run("check-storage") == 1
+    assert "probe failed" in capsys.readouterr().out
 
 
-def test_check_bucket_rule_longer_than_retention_is_a_warning(monkeypatch):
-    monkeypatch.setattr(get_settings(), "raw_retention_days", 7)  # the rule is 30 days
-    assert run("check-bucket", "--strict") == 1
+def test_check_bucket_is_not_applicable_to_the_filesystem_store(capsys):
+    assert run("check-bucket", "--strict") == 0
+    assert "not applicable" in capsys.readouterr().out
 
 
-def test_check_bucket_unreachable(monkeypatch):
+def test_check_bucket_help_says_it_is_s3_only(capsys):
+    with pytest.raises(SystemExit):
+        run("check-bucket", "--help")
+    assert "s3 store only" in capsys.readouterr().out
+
+
+def test_check_bucket_s3_unreachable(monkeypatch):
+    pytest.importorskip("aioboto3")
+    monkeypatch.setattr(get_settings(), "storage", "s3")
     monkeypatch.setattr(get_settings(), "s3_endpoint_url", "http://127.0.0.1:1")
     assert run("check-bucket", "--strict") == 2
+
+
+def test_check_bucket_s3_rule(s3_store_sync, monkeypatch, capsys):
+    monkeypatch.setattr(get_settings(), "storage", "s3")
+    assert run("check-bucket", "--strict") == 0  # s3-init applied a 30-day rule
+    monkeypatch.setattr(get_settings(), "raw_retention_days", 7)  # the rule is 30 days
+    assert run("check-bucket", "--strict") == 1
+    assert run("check-bucket") == 0  # a warning only, without --strict
 
 
 def test_api_help_mentions_the_token_guard(capsys):
@@ -71,11 +91,21 @@ def test_api_help_mentions_the_token_guard(capsys):
     assert "ALLOW_INSECURE_DEV" in out and "API_TOKEN" in out
 
 
-def test_api_uses_the_app_factory(monkeypatch):
+def test_api_binds_to_this_machine_by_default(monkeypatch):
     import uvicorn
 
     calls = {}
     monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: calls.update(args=a, kw=kw))
-    cli.cmd_api(argparse.Namespace(host="127.0.0.1", port=1234))
+    run("api")
     assert calls["args"] == ("session_lens.api.app:create_app",)
     assert calls["kw"]["factory"] is True
+    assert calls["kw"]["host"] == "127.0.0.1"
+
+
+def test_api_host_can_be_overridden(monkeypatch):
+    import uvicorn
+
+    calls = {}
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: calls.update(kw=kw))
+    cli.cmd_api(argparse.Namespace(host="0.0.0.0", port=9000))
+    assert calls["kw"]["host"] == "0.0.0.0" and calls["kw"]["port"] == 9000
