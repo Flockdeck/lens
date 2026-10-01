@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from session_lens.config import Settings
 from session_lens.db.models import BatchItem, ItemStatus, utcnow
 from session_lens.enrich.base import Enricher
+from session_lens.storage.base import RecordingStore
 from session_lens.worker.processor import Claim, ItemProcessor
 from session_lens.worker.queue import refresh_batch_status
 
@@ -100,13 +101,18 @@ async def recover_stale(
 
 async def run_worker(
     sm: async_sessionmaker[AsyncSession],
+    store: RecordingStore,
     enricher: Enricher,
     settings: Settings,
     stop: asyncio.Event,
 ) -> None:
     """Run until `stop` is set, then let in-flight items finish."""
     processor = ItemProcessor(
-        sm, enricher, settings.max_attempts, timeout_seconds=settings.claim_timeout_seconds * 0.9
+        sm,
+        store,
+        enricher,
+        settings.max_attempts,
+        timeout_seconds=settings.claim_timeout_seconds * 0.9,
     )
     inflight: set[asyncio.Task[None]] = set()
     clock = asyncio.get_running_loop().time

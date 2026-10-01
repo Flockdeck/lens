@@ -2,13 +2,12 @@
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-10-01 13:15:14.317593
+Create Date: 2026-10-01 13:55:10.099862
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import mysql
 
 from alembic import op
 
@@ -35,15 +34,20 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         sa.Column("size_bytes", sa.Integer(), nullable=False),
-        sa.Column("data", sa.LargeBinary().with_variant(mysql.LONGBLOB(), "mysql"), nullable=False),
+        sa.Column("object_key", sa.String(length=255), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("expired_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("object_key"),
     )
     op.create_index(
         op.f("ix_raw_recordings_content_hash"), "raw_recordings", ["content_hash"], unique=False
     )
     op.create_index(
         op.f("ix_raw_recordings_created_at"), "raw_recordings", ["created_at"], unique=False
+    )
+    op.create_index(
+        op.f("ix_raw_recordings_expired_at"), "raw_recordings", ["expired_at"], unique=False
     )
     op.create_table(
         "sessions",

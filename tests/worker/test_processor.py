@@ -25,8 +25,8 @@ from tests.worker.helpers import (
 )
 
 
-def processor(sm, enricher, max_attempts=3, timeout=30):
-    return ItemProcessor(sm, enricher, max_attempts, timeout)
+def processor(sm, store, enricher, max_attempts=3, timeout=30):
+    return ItemProcessor(sm, store, enricher, max_attempts, timeout)
 
 
 async def count(sm, model):
@@ -34,17 +34,17 @@ async def count(sm, model):
         return (await db.execute(select(func.count()).select_from(model))).scalar_one()
 
 
-async def run_one(sm, enricher, files, **kw):
-    batch_id, ids = await make_batch(sm, files)
+async def run_one(sm, store, enricher, files, **kw):
+    batch_id, ids = await make_batch(sm, store, files)
     claims = await claim_items(sm, len(ids))
-    p = processor(sm, enricher, **kw)
+    p = processor(sm, store, enricher, **kw)
     for c in claims:
         await p.process(c)
     return batch_id, ids
 
 
-async def test_success_stores_session_and_enrichment(sm):
-    batch_id, (a,) = await run_one(sm, FakeEnricher(), [("a.jsonl", recording("s1"))])
+async def test_success_stores_session_and_enrichment(sm, store):
+    batch_id, (a,) = await run_one(sm, store, FakeEnricher(), [("a.jsonl", recording("s1"))])
     item = await get_item(sm, a)
     assert item.status == ItemStatus.done and item.locked_at is None and item.error is None
     async with sm() as db:
@@ -59,44 +59,47 @@ async def test_success_stores_session_and_enrichment(sm):
     assert (await get_batch(sm, batch_id)).status == BatchStatus.done
 
 
-async def test_resubmitting_same_content_is_free(sm):
+async def test_resubmitting_same_content_is_free(sm, store):
     enricher = FakeEnricher()
-    await run_one(sm, enricher, [("a.jsonl", recording("s1"))])
-    await run_one(sm, enricher, [("again.jsonl", recording("s1"))])
+    await run_one(sm, store, enricher, [("a.jsonl", recording("s1"))])
+    await run_one(sm, store, enricher, [("again.jsonl", recording("s1"))])
     assert enricher.calls == 1
     assert await count(sm, Session) == 1 and await count(sm, Enrichment) == 1
 
 
-async def test_grown_session_is_a_new_row(sm):
+async def test_grown_session_is_a_new_row(sm, store):
     enricher = FakeEnricher()
     files = [("a.jsonl", recording("s1")), ("b.jsonl", recording("s1", extra="more"))]
-    await run_one(sm, enricher, files)
+    await run_one(sm, store, enricher, files)
     assert enricher.calls == 2
     assert await count(sm, Session) == 2
 
 
 @pytest.mark.parametrize("data", [recording("s1", v=2), b""])
-async def test_permanent_parse_failure_fails_without_retry(sm, data):
+async def test_permanent_parse_failure_fails_without_retry(sm, store, data):
     enricher = FakeEnricher()
-    batch_id, (a,) = await run_one(sm, enricher, [("a.jsonl", data)])
+    batch_id, (a,) = await run_one(sm, store, enricher, [("a.jsonl", data)])
     item = await get_item(sm, a)
     assert item.status == ItemStatus.failed and item.error_retryable is False
     assert item.not_before is None and enricher.calls == 0
     assert (await get_batch(sm, batch_id)).status == BatchStatus.done
 
 
-async def test_one_bad_item_does_not_fail_the_batch(sm):
+async def test_one_bad_item_does_not_fail_the_batch(sm, store):
     _, (bad, good) = await run_one(
-        sm, FakeEnricher(), [("bad.jsonl", recording("x", v=9)), ("good.jsonl", recording("y"))]
+        sm,
+        store,
+        FakeEnricher(),
+        [("bad.jsonl", recording("x", v=9)), ("good.jsonl", recording("y"))],
     )
     assert (await get_item(sm, bad)).status == ItemStatus.failed
     assert (await get_item(sm, good)).status == ItemStatus.done
 
 
-async def test_retryable_enrichment_failure_backs_off_and_keeps_partial_result(sm):
+async def test_retryable_enrichment_failure_backs_off_and_keeps_partial_result(sm, store):
     before = utcnow()
     batch_id, (a,) = await run_one(
-        sm, FakeEnricher([retryable("rate limited")]), [("a.jsonl", recording())]
+        sm, store, FakeEnricher([retryable("rate limited")]), [("a.jsonl", recording())]
     )
     item = await get_item(sm, a)
     assert item.status == ItemStatus.queued and item.attempts == 1
@@ -107,62 +110,85 @@ async def test_retryable_enrichment_failure_backs_off_and_keeps_partial_result(s
     assert (await get_batch(sm, batch_id)).status == BatchStatus.queued
 
 
-async def test_retry_then_success(sm):
+async def test_retry_then_success(sm, store):
     enricher = FakeEnricher([retryable()])
-    _, (a,) = await run_one(sm, enricher, [("a.jsonl", recording())])
+    _, (a,) = await run_one(sm, store, enricher, [("a.jsonl", recording())])
     async with sm() as db:
         await db.execute(update(BatchItem).where(BatchItem.id == a).values(not_before=None))
         await db.commit()
     (claim,) = await claim_items(sm, 1)
     assert claim.attempts == 2
-    await processor(sm, enricher).process(claim)
+    await processor(sm, store, enricher).process(claim)
     assert (await get_item(sm, a)).status == ItemStatus.done
     assert await count(sm, Session) == 1 and await count(sm, Enrichment) == 1
 
 
-async def test_retryable_failure_exhausts_attempts(sm):
+async def test_retryable_failure_exhausts_attempts(sm, store):
     enricher = FakeEnricher([retryable()] * 3)
-    batch_id, (a,) = await run_one(sm, enricher, [("a.jsonl", recording())], max_attempts=1)
+    batch_id, (a,) = await run_one(sm, store, enricher, [("a.jsonl", recording())], max_attempts=1)
     item = await get_item(sm, a)
     assert item.status == ItemStatus.failed and item.attempts == 1
     assert (await get_batch(sm, batch_id)).status == BatchStatus.done
 
 
-async def test_permanent_enrichment_failure_fails_immediately(sm):
-    _, (a,) = await run_one(sm, FakeEnricher([permanent("bad output")]), [("a.jsonl", recording())])
+async def test_permanent_enrichment_failure_fails_immediately(sm, store):
+    _, (a,) = await run_one(
+        sm, store, FakeEnricher([permanent("bad output")]), [("a.jsonl", recording())]
+    )
     item = await get_item(sm, a)
     assert item.status == ItemStatus.failed and item.error_retryable is False
 
 
-async def test_unexpected_error_is_retryable_and_leaks_no_text(sm):
+async def test_unexpected_error_is_retryable_and_leaks_no_text(sm, store):
     _, (a,) = await run_one(
-        sm, FakeEnricher([RuntimeError("recording content here")]), [("a.jsonl", recording())]
+        sm,
+        store,
+        FakeEnricher([RuntimeError("recording content here")]),
+        [("a.jsonl", recording())],
     )
     item = await get_item(sm, a)
     assert item.status == ItemStatus.queued and item.error == "RuntimeError"
 
 
-async def test_timeout_is_retryable(sm):
-    _, ids = await make_batch(sm, [("a.jsonl", recording())])
+async def test_timeout_is_retryable(sm, store):
+    _, ids = await make_batch(sm, store, [("a.jsonl", recording())])
     (claim,) = await claim_items(sm, 1)
-    await processor(sm, FakeEnricher(delay=5), timeout=0.05).process(claim)
+    await processor(sm, store, FakeEnricher(delay=5), timeout=0.05).process(claim)
     item = await get_item(sm, ids[0])
     assert item.status == ItemStatus.queued and "timed out" in item.error
 
 
-async def test_missing_raw_is_permanent(sm):
-    _, (a,) = await make_batch(sm, [("a.jsonl", recording())])
+async def test_expired_raw_fails_permanently(sm, store):
+    batch_id, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
     async with sm() as db:
-        await db.execute(RawRecording.__table__.delete())
+        await db.execute(RawRecording.__table__.update().values(expired_at=utcnow()))
         await db.commit()
     (claim,) = await claim_items(sm, 1)
-    await processor(sm, FakeEnricher()).process(claim)
+    enricher = FakeEnricher()
+    await processor(sm, store, enricher).process(claim)
     item = await get_item(sm, a)
     assert item.status == ItemStatus.failed and item.error_retryable is False
+    assert item.error == "raw recording expired" and enricher.calls == 0
+    assert (await get_batch(sm, batch_id)).status == BatchStatus.done
 
 
-async def test_lost_claim_does_not_overwrite_the_new_holder(sm):
-    _, (a,) = await make_batch(sm, [("a.jsonl", recording())])
+async def test_object_gone_marks_row_expired_and_fails(sm, store):
+    _, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
+    store.objects.clear()
+    (claim,) = await claim_items(sm, 1)
+    await processor(sm, store, FakeEnricher()).process(claim)
+    assert (await get_item(sm, a)).error == "raw recording expired"
+    async with sm() as db:
+        assert (await db.execute(select(RawRecording.expired_at))).scalar_one() is not None
+
+
+async def test_processing_through_the_real_s3_store(sm, s3_store):
+    _, (a,) = await run_one(sm, s3_store, FakeEnricher(), [("a.jsonl", recording("s3"))])
+    assert (await get_item(sm, a)).status == ItemStatus.done
+
+
+async def test_lost_claim_does_not_overwrite_the_new_holder(sm, store):
+    _, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
     (claim,) = await claim_items(sm, 1)
     async with sm() as db:  # someone else took over: new claim token
         await db.execute(
@@ -171,5 +197,5 @@ async def test_lost_claim_does_not_overwrite_the_new_holder(sm):
             .values(locked_at=utcnow() + timedelta(seconds=10))
         )
         await db.commit()
-    await processor(sm, FakeEnricher()).process(claim)
+    await processor(sm, store, FakeEnricher()).process(claim)
     assert (await get_item(sm, a)).status == ItemStatus.running

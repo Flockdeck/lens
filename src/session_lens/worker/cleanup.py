@@ -1,28 +1,54 @@
-"""Raw recording retention. Sessions, metrics and enrichments are kept; only the blob goes."""
+"""Retention reconciliation. Raw objects are expired by the bucket's lifecycle rule; this only
+brings the database in line (and trims old batches). Sessions, metrics and enrichments are kept.
+It never deletes objects and never lists the bucket."""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from session_lens.db.models import BatchItem, ItemStatus, RawRecording, utcnow
+from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
 
 log = logging.getLogger(__name__)
 
-CHUNK = 100  # blobs can be 16 MiB, so delete in small transactions
+BATCH_RETENTION_DAYS = 90
+CHUNK = 500
 
 
-async def cleanup_raw(sm: async_sessionmaker[AsyncSession], retention_days: int) -> int:
-    """Delete raw recordings older than `retention_days`, except those a queued or running item
-    still needs. References from items and sessions are set to NULL by the foreign keys.
-    Returns how many were deleted."""
+@dataclass(frozen=True)
+class CleanupResult:
+    raws_expired: int
+    batches_deleted: int
+
+
+async def expire_raws(sm: async_sessionmaker[AsyncSession], retention_days: int) -> int:
+    """Set expired_at on raw rows older than `retention_days`."""
+    now = utcnow()
+    async with sm() as db:
+        result = await db.execute(
+            update(RawRecording)
+            .where(
+                RawRecording.expired_at.is_(None),
+                RawRecording.created_at < now - timedelta(days=retention_days),
+            )
+            .values(expired_at=now)
+        )
+        await db.commit()
+        return int(result.rowcount)  # type: ignore[attr-defined]
+
+
+async def delete_old_batches(
+    sm: async_sessionmaker[AsyncSession], retention_days: int = BATCH_RETENTION_DAYS
+) -> int:
+    """Delete finished batches (done or cancelled, with nothing queued or running) older than
+    `retention_days`; their items go with them by foreign-key cascade."""
     cutoff = utcnow() - timedelta(days=retention_days)
-    in_use = select(BatchItem.raw_id).where(
-        BatchItem.status.in_([ItemStatus.queued, ItemStatus.running]),
-        BatchItem.raw_id.is_not(None),
+    active = select(BatchItem.batch_id).where(
+        BatchItem.status.in_([ItemStatus.queued, ItemStatus.running])
     )
     deleted = 0
     while True:
@@ -30,9 +56,13 @@ async def cleanup_raw(sm: async_sessionmaker[AsyncSession], retention_days: int)
             ids = (
                 (
                     await db.execute(
-                        select(RawRecording.id)
-                        .where(RawRecording.created_at < cutoff, RawRecording.id.not_in(in_use))
-                        .order_by(RawRecording.id)
+                        select(Batch.id)
+                        .where(
+                            Batch.status.in_([BatchStatus.done, BatchStatus.cancelled]),
+                            Batch.created_at < cutoff,
+                            Batch.id.not_in(active),
+                        )
+                        .order_by(Batch.id)
                         .limit(CHUNK)
                     )
                 )
@@ -40,9 +70,19 @@ async def cleanup_raw(sm: async_sessionmaker[AsyncSession], retention_days: int)
                 .all()
             )
             if not ids:
-                break
-            await db.execute(delete(RawRecording).where(RawRecording.id.in_(ids)))
+                return deleted
+            await db.execute(delete(Batch).where(Batch.id.in_(ids)))
             await db.commit()
             deleted += len(ids)
-    log.info("raw cleanup", extra={"deleted": deleted, "retention_days": retention_days})
-    return deleted
+
+
+async def run_cleanup(sm: async_sessionmaker[AsyncSession], retention_days: int) -> CleanupResult:
+    result = CleanupResult(
+        raws_expired=await expire_raws(sm, retention_days),
+        batches_deleted=await delete_old_batches(sm),
+    )
+    log.info(
+        "cleanup",
+        extra={"raws_expired": result.raws_expired, "batches_deleted": result.batches_deleted},
+    )
+    return result

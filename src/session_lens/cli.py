@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from session_lens.config import get_settings
+from session_lens.worker.cleanup import CleanupResult
 
 API_APP = "session_lens.api.main:app"  # the api component's ASGI app
 
@@ -39,6 +40,7 @@ def configure_logging(level: str) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     logging.basicConfig(level=level.upper(), handlers=[handler], force=True)
+    logging.getLogger("alembic").setLevel(logging.WARNING)
 
 
 def cmd_api(args: argparse.Namespace) -> int:
@@ -51,6 +53,7 @@ def cmd_api(args: argparse.Namespace) -> int:
 async def _worker() -> None:
     from session_lens.db.session import dispose_engine, get_sessionmaker
     from session_lens.enrich.base import build_enricher
+    from session_lens.storage.base import build_store
     from session_lens.worker.loop import run_worker
 
     settings = get_settings()
@@ -62,7 +65,9 @@ async def _worker() -> None:
         except NotImplementedError:  # Windows
             signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
     try:
-        await run_worker(get_sessionmaker(), build_enricher(settings), settings, stop)
+        await run_worker(
+            get_sessionmaker(), build_store(settings), build_enricher(settings), settings, stop
+        )
     finally:
         await dispose_engine()
 
@@ -72,27 +77,55 @@ def cmd_worker(_: argparse.Namespace) -> int:
     return 0
 
 
-async def _cleanup() -> int:
+async def _cleanup() -> CleanupResult:
     from session_lens.db.session import dispose_engine, get_sessionmaker
-    from session_lens.worker.cleanup import cleanup_raw
+    from session_lens.worker.cleanup import run_cleanup
 
     try:
-        return await cleanup_raw(get_sessionmaker(), get_settings().raw_retention_days)
+        return await run_cleanup(get_sessionmaker(), get_settings().raw_retention_days)
     finally:
         await dispose_engine()
 
 
 def cmd_cleanup(_: argparse.Namespace) -> int:
-    deleted = asyncio.run(_cleanup())
-    print(f"deleted {deleted} raw recordings")
+    result = asyncio.run(_cleanup())
+    print(f"expired {result.raws_expired} raw recordings, deleted {result.batches_deleted} batches")
     return 0
 
 
-def cmd_migrate(_: argparse.Namespace) -> int:
-    root = Path(__file__).resolve().parents[2]  # alembic.ini lives at the repo root
-    ini = root / "alembic.ini"
-    if not ini.exists():  # installed image: fall back to the working directory
-        ini = Path("alembic.ini")
+def _alembic_ini() -> Path:
+    ini = Path(__file__).resolve().parents[2] / "alembic.ini"  # repo root
+    return ini if ini.exists() else Path("alembic.ini")  # installed image: working directory
+
+
+async def _db_revision() -> str | None:
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from session_lens.db.session import dispose_engine, get_engine
+
+    try:
+        async with get_engine().connect() as conn:
+            return (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar()
+    except DBAPIError:  # unreachable DB or no alembic_version table yet
+        return None
+    finally:
+        await dispose_engine()
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    ini = _alembic_ini()
+    if args.check:
+        # Exit 0 only when the database is at the head revision; for init containers that
+        # wait for the schema.
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        cfg = Config(str(ini))
+        head = ScriptDirectory.from_config(cfg).get_current_head()
+        current = asyncio.run(_db_revision())
+        print(f"head={head} current={current}")
+        return 0 if current == head else 1
     return subprocess.call(
         [sys.executable, "-m", "alembic", "-c", str(ini), "upgrade", "head"], cwd=ini.parent
     )
@@ -106,10 +139,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     api.add_argument("--port", type=int, default=8000)
     api.set_defaults(func=cmd_api)
     sub.add_parser("worker", help="run the batch item worker").set_defaults(func=cmd_worker)
-    sub.add_parser("cleanup", help="delete raw recordings past retention").set_defaults(
-        func=cmd_cleanup
+    sub.add_parser(
+        "cleanup", help="mark raw recordings past retention expired; delete old batches"
+    ).set_defaults(func=cmd_cleanup)
+    migrate = sub.add_parser("migrate", help="alembic upgrade head")
+    migrate.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 0 only if the database is at head; change nothing",
     )
-    sub.add_parser("migrate", help="alembic upgrade head").set_defaults(func=cmd_migrate)
+    migrate.set_defaults(func=cmd_migrate)
     args = parser.parse_args(argv)
     configure_logging(get_settings().log_level)
     return int(args.func(args))

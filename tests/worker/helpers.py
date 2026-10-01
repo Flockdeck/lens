@@ -14,6 +14,7 @@ from session_lens.recording.parser import EmptyRecording, UnsupportedVersion
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from session_lens.db.models import Batch, BatchItem
+from session_lens.storage.base import RecordingStore
 from session_lens.worker.queue import create_batch
 
 
@@ -110,10 +111,10 @@ def permanent(msg: str = "bad output") -> EnrichmentError:
 
 
 async def make_batch(
-    sm: async_sessionmaker[AsyncSession], files: list[tuple[str, bytes]]
+    sm: async_sessionmaker[AsyncSession], store: RecordingStore, files: list[tuple[str, bytes]]
 ) -> tuple[int, list[int]]:
     async with sm() as db:
-        batch = await create_batch(db, files)
+        batch = await create_batch(db, store, files)
         await db.commit()
         items = (
             await db.execute(

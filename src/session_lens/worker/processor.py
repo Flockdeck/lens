@@ -14,14 +14,15 @@ from session_lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecordi
 from session_lens.enrich.base import Enricher, EnrichmentResult
 from session_lens.recording.models import Analysis
 from session_lens.recording.parser import analyze, parse
-from session_lens.worker.queue import decompress, refresh_batch_status
-from session_lens.worker.retry import Failure, MissingRaw, backoff_seconds, classify
+from session_lens.storage.base import RecordingExpired, RecordingStore
+from session_lens.worker.queue import read_raw, refresh_batch_status
+from session_lens.worker.retry import Failure, backoff_seconds, classify
 
 log = logging.getLogger(__name__)
 
 
-def _analyze_blob(blob: bytes) -> Analysis:
-    return analyze(parse(decompress(blob)))
+def _analyze_blob(data: bytes) -> Analysis:
+    return analyze(parse(data))
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ async def upsert_session(
     db: AsyncSession, analysis: Analysis, content_hash: str, raw_id: int | None
 ) -> Session:
     """Create or refresh the Session keyed on (recording_session, content_hash). Flushed, not
-    committed. An existing session keeps its raw_id unless that was deleted by retention."""
+    committed. The session points at the raw recording just read."""
     row = (
         await db.execute(
             select(Session).where(
@@ -63,8 +64,8 @@ async def upsert_session(
     row.risky_actions = [r.model_dump(mode="json") for r in analysis.risky_actions]
     row.files_touched = analysis.files_touched.model_dump(mode="json")
     row.warnings = list(analysis.warnings)
-    if row.raw_id is None:
-        row.raw_id = raw_id
+    if raw_id is not None:
+        row.raw_id = raw_id  # the newest raw we could actually read
     await db.flush()
     return row
 
@@ -97,11 +98,13 @@ class ItemProcessor:
     def __init__(
         self,
         sessionmaker: async_sessionmaker[AsyncSession],
+        store: RecordingStore,
         enricher: Enricher,
         max_attempts: int,
         timeout_seconds: float,
     ) -> None:
         self._sm = sessionmaker
+        self._store = store
         self._enricher = enricher
         self._max_attempts = max_attempts
         # An item must finish before its claim goes stale, or another worker would take it
@@ -124,11 +127,18 @@ class ItemProcessor:
         # a flaky enricher still leaves a usable (unenriched) session behind.
         async with self._sm() as db:
             item = await db.get(BatchItem, claim.item_id)
-            raw = await db.get(RawRecording, item.raw_id) if item and item.raw_id else None
-            if raw is None:
-                raise MissingRaw
+            if item is None or item.raw_id is None:
+                raise RecordingExpired(claim.item_id)
+            try:
+                data = await read_raw(db, self._store, item.raw_id)
+            except RecordingExpired:
+                await db.commit()  # keep expired_at if the object turned out to be gone
+                raise
+            raw = await db.get(RawRecording, item.raw_id)
+            assert raw is not None
             # CPU-bound on up to 16 MiB: keep it off the event loop.
-            analysis = await asyncio.to_thread(_analyze_blob, raw.data)
+            analysis = await asyncio.to_thread(_analyze_blob, data)
+            del data
             row = await upsert_session(db, analysis, raw.content_hash, raw.id)
             session_id = row.id
             enriched = (

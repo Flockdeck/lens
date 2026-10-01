@@ -4,41 +4,84 @@ recordings, and rolling item statuses up into the batch status."""
 from __future__ import annotations
 
 import hashlib
+import logging
+import uuid
 from collections.abc import Sequence
 
-import zstandard
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from session_lens.config import get_settings
 from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
+from session_lens.storage.base import RecordingExpired, RecordingStore
+
+log = logging.getLogger(__name__)
 
 
 class BatchNotFound(LookupError):
     pass
 
 
-def compress(data: bytes) -> bytes:
-    return zstandard.ZstdCompressor(level=3).compress(data)
+def new_object_key(prefix: str) -> str:
+    now = utcnow()
+    return f"{prefix}{now:%Y/%m}/{uuid.uuid4()}.jsonl"
 
 
-def decompress(blob: bytes) -> bytes:
-    return zstandard.ZstdDecompressor().decompress(blob)
-
-
-async def store_raw(session: AsyncSession, data: bytes) -> RawRecording:
-    """Hash and zstd-compress `data` into a new raw_recordings row (flushed, not committed)."""
+async def store_raw(session: AsyncSession, store: RecordingStore, data: bytes) -> RawRecording:
+    """Hash `data`, put the object, then add the row (flushed, not committed). Putting first
+    means a row never points at a missing object; a failure after the put leaves an orphan
+    object, which the bucket's lifecycle rule removes."""
+    key = new_object_key(get_settings().s3_prefix)
+    await store.put(key, data)
     raw = RawRecording(
-        content_hash=hashlib.sha256(data).hexdigest(),
-        size_bytes=len(data),
-        data=compress(data),
+        content_hash=hashlib.sha256(data).hexdigest(), size_bytes=len(data), object_key=key
     )
     session.add(raw)
     await session.flush()
     return raw
 
 
+async def read_raw(session: AsyncSession, store: RecordingStore, raw_id: int) -> bytes:
+    """The recording's bytes. Raises RecordingExpired if the row is expired, missing, or its
+    object is gone; in the last case `expired_at` is set (flushed; the caller should commit
+    before re-raising if it wants that kept)."""
+    raw = await session.get(RawRecording, raw_id)
+    if raw is None or raw.expired_at is not None:
+        raise RecordingExpired(raw_id)
+    try:
+        return await store.get(raw.object_key)
+    except RecordingExpired:
+        raw.expired_at = utcnow()
+        await session.flush()
+        raise
+
+
+async def delete_raws_for_hash(
+    session: AsyncSession, store: RecordingStore, content_hash: str
+) -> int:
+    """Delete every raw row with this content hash and its object (best effort on the object,
+    then the row). Flushed, not committed. Returns the number of rows deleted."""
+    raws = (
+        (
+            await session.execute(
+                select(RawRecording).where(RawRecording.content_hash == content_hash)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for raw in raws:
+        try:
+            await store.delete(raw.object_key)
+        except Exception:
+            log.warning("object delete failed", extra={"raw_id": raw.id, "key": raw.object_key})
+        await session.delete(raw)
+    await session.flush()
+    return len(raws)
+
+
 async def create_batch(
-    session: AsyncSession, files: Sequence[tuple[str, bytes | RawRecording]]
+    session: AsyncSession, store: RecordingStore, files: Sequence[tuple[str, bytes | RawRecording]]
 ) -> Batch:
     """Create a batch with one queued item per `(filename, content)`. Content may be the bytes
     (stored here) or a RawRecording the caller already stored. Flushed, not committed."""
@@ -46,7 +89,11 @@ async def create_batch(
     session.add(batch)
     await session.flush()
     for filename, content in files:
-        raw = content if isinstance(content, RawRecording) else await store_raw(session, content)
+        raw = (
+            content
+            if isinstance(content, RawRecording)
+            else await store_raw(session, store, content)
+        )
         session.add(BatchItem(batch_id=batch.id, filename=filename[:255], raw_id=raw.id))
     await session.flush()
     return batch

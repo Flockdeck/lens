@@ -19,8 +19,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from alembic import command
-from session_lens.config import Settings
+from session_lens.config import Settings, get_settings
 from session_lens.db.models import Base
+from session_lens.storage.base import RecordingStore, build_store
+from session_lens.storage.memory import InMemoryStore
 
 
 def _ensure_module(name: str, **attrs: object) -> None:
@@ -126,3 +128,17 @@ def fake_recording(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(processor, "parse", fake_parse)
     monkeypatch.setattr(processor, "analyze", fake_analyze)
+
+
+@pytest.fixture
+def store() -> InMemoryStore:
+    return InMemoryStore()
+
+
+@pytest_asyncio.fixture
+async def s3_store() -> AsyncIterator[RecordingStore]:
+    """The real S3 path against the compose object store, under a prefix unique to the test."""
+    patch = pytest.MonkeyPatch()
+    patch.setattr(get_settings(), "s3_prefix", f"recordings/test-{uuid.uuid4().hex[:8]}/")
+    yield build_store(Settings())
+    patch.undo()

@@ -1,8 +1,8 @@
 import random
 
-import zstandard
 from session_lens.recording.parser import EmptyRecording, UnsupportedVersion
 
+from session_lens.storage.base import RecordingExpired
 from session_lens.worker.retry import backoff_seconds, classify
 from tests.worker.helpers import permanent, retryable
 
@@ -18,7 +18,8 @@ def test_backoff_grows_exponentially_with_jitter_and_caps():
 def test_classify():
     assert not classify(UnsupportedVersion("v2")).retryable
     assert not classify(EmptyRecording()).retryable
-    assert not classify(zstandard.ZstdError("bad")).retryable
+    expired = classify(RecordingExpired())
+    assert not expired.retryable and expired.message == "raw recording expired"
     assert not classify(permanent()).retryable
     assert classify(retryable()).retryable
     assert classify(TimeoutError()).retryable

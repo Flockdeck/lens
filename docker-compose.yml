@@ -8,7 +8,7 @@ services:
       MYSQL_PASSWORD: session_lens
     ports:
       - "${MYSQL_PORT:-3306}:3306"
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci", "--max-allowed-packet=64M"]
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
@@ -17,5 +17,45 @@ services:
       timeout: 5s
       retries: 20
 
+  # S3-compatible object store for raw recordings (DigitalOcean Spaces in the cluster).
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-ip.bind=0.0.0.0"]
+    ports:
+      - "${S3_PORT:-9000}:8333"  # matches the S3_ENDPOINT_URL default
+    volumes:
+      - s3-data:/data
+    configs:
+      - source: s3-config
+        target: /etc/seaweedfs/s3.json
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/status || wget -q -O /dev/null http://127.0.0.1:9333/cluster/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: creates the bucket and a 30-day expiry rule on the recordings/ prefix, the same
+  # rule terrawost sets on the Spaces bucket. Safe to re-run.
+  s3-init:
+    image: amazon/aws-cli:latest
+    depends_on:
+      s3:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        aws --endpoint-url http://s3:8333 s3api create-bucket --bucket session-lens 2>/dev/null || true
+        aws --endpoint-url http://s3:8333 s3api put-bucket-lifecycle-configuration --bucket session-lens           --lifecycle-configuration '{"Rules":[{"ID":"expire-recordings","Status":"Enabled","Filter":{"Prefix":"recordings/"},"Expiration":{"Days":30}}]}'
+
+configs:
+  s3-config:
+    content: |
+      {"identities":[{"name":"session-lens","credentials":[{"accessKey":"minioadmin","secretKey":"minioadmin"}],"actions":["Admin","Read","Write","List","Tagging"]}]}
+
 volumes:
   mysql-data:
+  s3-data:

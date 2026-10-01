@@ -1,14 +1,18 @@
 import hashlib
+import re
 
-import zstandard
+import pytest
 from sqlalchemy import select, update
 
-from session_lens.db.models import BatchItem, BatchStatus, ItemStatus, RawRecording
+from session_lens.db.models import BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
+from session_lens.storage.base import RecordingExpired
 from session_lens.worker.queue import (
     BatchNotFound,
     cancel_batch,
     create_batch,
+    delete_raws_for_hash,
     item_counts,
+    read_raw,
     refresh_batch_status,
     retry_failed,
     store_raw,
@@ -16,21 +20,82 @@ from session_lens.worker.queue import (
 from tests.worker.helpers import get_batch, make_batch, recording
 
 
-async def test_store_raw_hashes_and_compresses(sm):
+async def test_store_raw_puts_object_then_row(sm, store):
     data = recording(extra="x" * 5000)
     async with sm() as db:
-        raw = await store_raw(db, data)
+        raw = await store_raw(db, store, data)
         await db.commit()
         row = await db.get(RawRecording, raw.id)
     assert row.content_hash == hashlib.sha256(data).hexdigest()
     assert row.size_bytes == len(data)
-    assert len(row.data) < len(data)
-    assert zstandard.ZstdDecompressor().decompress(row.data) == data
+    assert row.expired_at is None
+    assert re.fullmatch(r"recordings/\d{4}/\d{2}/[0-9a-f-]{36}\.jsonl", row.object_key)
+    assert store.objects[row.object_key] == data
 
 
-async def test_create_batch_queues_one_item_per_file(sm):
+async def test_store_raw_failed_put_leaves_no_row(sm, store):
+    store.fail_put = True
+    async with sm() as db:
+        with pytest.raises(OSError):
+            await store_raw(db, store, recording())
+        await db.rollback()
+    async with sm() as db:
+        assert (await db.execute(select(RawRecording))).first() is None
+
+
+async def test_each_upload_gets_its_own_object(sm, store):
+    async with sm() as db:
+        a = await store_raw(db, store, recording())
+        b = await store_raw(db, store, recording())
+        await db.commit()
+    assert a.object_key != b.object_key and len(store.objects) == 2
+
+
+async def test_read_raw_roundtrip(sm, store):
+    async with sm() as db:
+        raw = await store_raw(db, store, recording("rt"))
+        await db.commit()
+        assert await read_raw(db, store, raw.id) == recording("rt")
+
+
+async def test_read_raw_expired_row(sm, store):
+    async with sm() as db:
+        raw = await store_raw(db, store, recording())
+        raw.expired_at = utcnow()
+        await db.commit()
+        with pytest.raises(RecordingExpired):
+            await read_raw(db, store, raw.id)
+        with pytest.raises(RecordingExpired):
+            await read_raw(db, store, 99999)
+
+
+async def test_read_raw_gone_object_sets_expired_at(sm, store):
+    async with sm() as db:
+        raw = await store_raw(db, store, recording())
+        await db.commit()
+        store.objects.clear()  # the lifecycle rule removed it
+        with pytest.raises(RecordingExpired):
+            await read_raw(db, store, raw.id)
+        await db.commit()
+        assert (await db.get(RawRecording, raw.id)).expired_at is not None
+
+
+async def test_delete_raws_for_hash(sm, store):
+    async with sm() as db:
+        a = await store_raw(db, store, recording("same"))
+        b = await store_raw(db, store, recording("same"))
+        other = await store_raw(db, store, recording("other"))
+        await db.commit()
+        assert await delete_raws_for_hash(db, store, a.content_hash) == 2
+        await db.commit()
+        assert [r.id for r in (await db.execute(select(RawRecording))).scalars()] == [other.id]
+    assert list(store.objects) == [other.object_key]
+    assert b.object_key not in store.objects
+
+
+async def test_create_batch_queues_one_item_per_file(sm, store):
     batch_id, item_ids = await make_batch(
-        sm, [("a.jsonl", recording("a")), ("b.jsonl", recording("b"))]
+        sm, store, [("a.jsonl", recording("a")), ("b.jsonl", recording("b"))]
     )
     assert len(item_ids) == 2
     async with sm() as db:
@@ -40,10 +105,10 @@ async def test_create_batch_queues_one_item_per_file(sm):
     assert (await get_batch(sm, batch_id)).status == BatchStatus.queued
 
 
-async def test_create_batch_accepts_prestored_raw(sm):
+async def test_create_batch_accepts_prestored_raw(sm, store):
     async with sm() as db:
-        raw = await store_raw(db, recording())
-        batch = await create_batch(db, [("a.jsonl", raw)])
+        raw = await store_raw(db, store, recording())
+        batch = await create_batch(db, store, [("a.jsonl", raw)])
         await db.commit()
         item = (
             await db.execute(select(BatchItem).where(BatchItem.batch_id == batch.id))
@@ -57,8 +122,8 @@ async def _set(sm, item_id, status):
         await db.commit()
 
 
-async def test_rollup(sm):
-    batch_id, (a, b, c) = await make_batch(sm, [(f"{n}.jsonl", recording(n)) for n in "abc"])
+async def test_rollup(sm, store):
+    batch_id, (a, b, c) = await make_batch(sm, store, [(f"{n}.jsonl", recording(n)) for n in "abc"])
 
     async def status():
         async with sm() as db:
@@ -76,9 +141,9 @@ async def test_rollup(sm):
     assert await status() == BatchStatus.done  # failures do not keep a batch open
 
 
-async def test_retry_failed_requeues_only_failed(sm):
+async def test_retry_failed_requeues_only_failed(sm, store):
     batch_id, (a, b) = await make_batch(
-        sm, [("a.jsonl", recording("a")), ("b.jsonl", recording("b"))]
+        sm, store, [("a.jsonl", recording("a")), ("b.jsonl", recording("b"))]
     )
     await _set(sm, a, ItemStatus.done)
     async with sm() as db:
@@ -101,8 +166,8 @@ async def test_retry_failed_requeues_only_failed(sm):
     assert (await get_batch(sm, batch_id)).status == BatchStatus.running
 
 
-async def test_cancel_batch_cancels_queued_leaves_running(sm):
-    batch_id, (a, b, c) = await make_batch(sm, [(f"{n}.jsonl", recording(n)) for n in "abc"])
+async def test_cancel_batch_cancels_queued_leaves_running(sm, store):
+    batch_id, (a, b, c) = await make_batch(sm, store, [(f"{n}.jsonl", recording(n)) for n in "abc"])
     await _set(sm, a, ItemStatus.running)
     async with sm() as db:
         assert await cancel_batch(db, batch_id) == 2
@@ -115,7 +180,7 @@ async def test_cancel_batch_cancels_queued_leaves_running(sm):
         assert await refresh_batch_status(db, batch_id) == BatchStatus.cancelled
 
 
-async def test_unknown_batch(sm):
+async def test_unknown_batch(sm, store):
     async with sm() as db:
         for fn in (retry_failed, cancel_batch):
             try:
