@@ -1,4 +1,4 @@
-.PHONY: help install token up down logs migrate api worker lint format typecheck test check build clean-data smoke
+.PHONY: help install token up down logs migrate api worker lint format typecheck test e2e e2e-browser check build clean-data smoke
 
 help:
 	@grep -E '^[a-z-]+:' Makefile | cut -d: -f1 | sort
@@ -44,6 +44,14 @@ typecheck:
 
 test:
 	uv run pytest
+
+# The whole flow through the real stack (needs `docker compose up -d --wait mysql`). `e2e-browser` drives a
+# real browser too: Edge if installed, else Playwright's Chromium (`uv run playwright install chromium`).
+e2e:
+	uv run pytest tests/e2e -m "not browser"
+
+e2e-browser:
+	uv run pytest tests/e2e -m browser
 
 check: lint typecheck test
 

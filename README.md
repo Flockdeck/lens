@@ -181,9 +181,19 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
 - API tests against the real worker and storage modules, including the privacy headers and log
   contents; enrich tests with a scripted fake Ollama server, including that non-local URLs are
   refused; web tests that fail on any external URL in the UI.
-- GitHub Actions runs ruff, `mypy --strict` and pytest against a MySQL service container, and
-  builds the image on pull requests without pushing it. There is no deployment: this stays on
-  your machine.
+- **End to end** (`tests/e2e`, `make e2e`): the real app, worker, MySQL, filesystem store and parser, with
+  nothing faked between an upload and a result. They submit a mixed batch and read every view of it
+  (sessions, metrics, risky actions, paged events, stats, config, privacy headers), resubmit the same and a
+  longer recording, age a recording past retention and check the file is really gone and the endpoints
+  answer `410`, delete, cancel and retry, per-file upload checks, and that every data endpoint needs the
+  token. `make e2e-browser` repeats the flow in a real browser (Edge, else Chromium): wrong then right
+  token, a multi-file upload with the empty file flagged, the batch page, filtering, the session page,
+  raw events, re-enrich, delete, insights, phone width without sideways scrolling, keyboard focus, no
+  external request and no console error. I checked they can fail by breaking file deletion and the
+  done glyph on purpose.
+- GitHub Actions runs ruff, `mypy --strict` and pytest (end-to-end tests and a Chromium browser
+  included) against a MySQL service container, and builds the image on pull requests without
+  pushing it. There is no deployment: this stays on your machine.
 
 ### Decisions I would talk about
 

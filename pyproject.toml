@@ -25,6 +25,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "ruff>=0.5",
+    "playwright>=1.45",
     "mypy>=1.10",
 ]
 
@@ -41,6 +42,7 @@ packages = ["src/session_lens"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["browser: drives a real browser; skipped when none can be launched"]
 
 [tool.ruff]
 line-length = 100

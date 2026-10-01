@@ -29,6 +29,8 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync
+      - name: Install a browser for the end-to-end tests
+        run: uv run playwright install --with-deps chromium
       - name: Ruff
         run: |
           uv run ruff check .
