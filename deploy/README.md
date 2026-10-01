@@ -36,11 +36,20 @@ Manifests live in `deploy/k8s-infra/session-lens/` and are applied by Flux. One 
    with ClusterIssuer `letsencrypt-prod`, CoreDNS (`k8s-app: kube-dns`).
 8. A public GHCR package (or an imagePullSecret) for `ghcr.io/jmwri/session-lens`.
 
+## Post-deploy check
+
+After terrawost applies the lifecycle rule (and after any change to `RAW_RETENTION_DAYS`), run
+`kubectl -n session-lens exec deploy/session-lens-worker -- session-lens check-bucket --strict`.
+It fails if the bucket has no expiry rule on `recordings/` of at most `RAW_RETENTION_DAYS` days.
+It is not a CronJob; the worker pod already carries the S3 credentials it needs.
+
 ## Notes
 
 - The api Deployment is pinned to one replica with `Recreate`, because it runs migrations
   from an init container (MySQL DDL is not transactional and Alembic takes no lock). The worker
   waits for the schema in its own init container.
+- `ALLOW_INSECURE_DEV` is set only in docker-compose; the cluster must never set it, and
+  `API_TOKEN` comes from the secret.
 - The first release tag needs a committed `uv.lock`; the Dockerfile uses `uv sync --frozen`.
 
 - The API enforces the ~256 MiB request limit (`MAX_REQUEST_BYTES`); the HAProxy ingress has

@@ -59,6 +59,8 @@ services:
     environment: &app-env
       DATABASE_URL: mysql+asyncmy://session_lens:session_lens@mysql:3306/session_lens?charset=utf8mb4
       API_TOKEN: ${API_TOKEN:-dev-token}
+      # Local only: the app refuses a default API_TOKEN without this. Never set it in k8s.
+      ALLOW_INSECURE_DEV: "1"
       ENRICHER: ${ENRICHER:-mock}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       S3_ENDPOINT_URL: http://s3:8333
