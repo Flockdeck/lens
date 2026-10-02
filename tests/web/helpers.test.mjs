@@ -36,7 +36,13 @@ assert.match(lib.statusLine({ ...cfg, raw_retention_days: 0 }), /raw kept until 
 assert.match(lib.statusLine({ ...cfg, enricher: "ollama" }), /enrichment: local model/);
 assert.match(lib.statusLine({ ...cfg, raw_retention_days: 1 }), /raw kept 1 day$/);
 assert.match(lib.statusLine({ ...cfg, storage: "s3" }), /^Not verified as local-only/);
-assert.match(lib.statusLine({ ...cfg, enricher: "anthropic" }), /^Not verified as local-only/);
+assert.match(lib.statusLine({ ...cfg, enricher: "anthropic" }), /^Sends digests to Anthropic · storage: filesystem · enrichment: anthropic/);
+assert.equal(lib.isLocalOnly({ ...cfg, enricher: "anthropic" }), false);
+assert.equal(lib.isRemoteEnrichment({ ...cfg, enricher: "anthropic" }), true);
+assert.equal(lib.isRemoteEnrichment(cfg), false);
+assert.match(lib.statusDetails(cfg)[0], /^Nothing is uploaded/);
+assert.match(lib.statusDetails({ ...cfg, enricher: "anthropic" })[0], /Raw recordings stay on this machine.*sends a bounded digest.*Anthropic API/i);
+assert.doesNotMatch(lib.statusDetails({ ...cfg, enricher: "anthropic" }).join(" "), /Nothing is uploaded/);
 assert.equal(lib.statusLine(null), "Status unavailable");
 assert.match(lib.expiredText(cfg), /^Raw recording expired after 30 days\./);
 assert.match(lib.expiredText({ ...cfg, raw_retention_days: 0 }), /retention is off/);

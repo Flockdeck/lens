@@ -54,7 +54,11 @@ class Enricher(Protocol):
 
 
 def build_enricher(settings: Settings) -> Enricher:
-    # Imported lazily so the mock path needs no HTTP client at all.
+    # Imported lazily so the mock path loads no SDK and no HTTP client at all.
+    if settings.enricher == "anthropic":
+        from session_lens.enrich.anthropic import AnthropicEnricher
+
+        return AnthropicEnricher.from_settings(settings)
     if settings.enricher == "ollama":
         from session_lens.enrich.ollama import OllamaEnricher
 

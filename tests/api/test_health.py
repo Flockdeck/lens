@@ -1,5 +1,12 @@
-import httpx
+import logging
 
+import httpx
+import pytest
+from pydantic import SecretStr
+
+from session_lens.api.app import create_app
+from session_lens.api.deps import get_store_provider
+from session_lens.config import Settings
 from session_lens.storage.memory import InMemoryStore
 
 
@@ -44,3 +51,24 @@ async def test_readyz_503_when_db_unreachable(database_url: str, store: InMemory
             assert (await c.get("/healthz")).status_code == 200
             assert (await c.get("/readyz")).status_code == 503
             assert (await c.get("/metrics")).status_code == 200
+
+
+async def test_config_reports_a_remote_enricher_but_never_the_key(
+    app_settings: Settings, store: InMemoryStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    secret = "sk-ant-test-0123456789"
+    settings = app_settings.model_copy(
+        update={"enricher": "anthropic", "anthropic_api_key": SecretStr(secret)}
+    )
+    app = create_app(settings)
+    app.dependency_overrides[get_store_provider] = lambda: lambda: store
+    caplog.set_level(logging.DEBUG)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.get("/config")
+    assert resp.status_code == 200
+    assert resp.json()["enricher"] == "anthropic"
+    assert secret not in resp.text
+    assert "anthropic_api_key" not in resp.text
+    assert secret not in caplog.text

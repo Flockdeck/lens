@@ -116,18 +116,34 @@ export function isLocalOnly(cfg) {
   return !!cfg && cfg.storage === "filesystem" && (cfg.enricher === "mock" || cfg.enricher === "ollama");
 }
 
+/** True when the configured enricher sends session digests off this machine. */
+export function isRemoteEnrichment(cfg) {
+  return !!cfg && cfg.enricher === "anthropic";
+}
+
 /** The always-visible status text. The words carry the meaning, not a colour. */
 export function statusLine(cfg) {
   if (!cfg) return "Status unavailable";
   const enrichment = cfg.enricher === "ollama" ? "local model (ollama)" : cfg.enricher;
-  const parts = [
-    isLocalOnly(cfg) ? "Local only" : "Not verified as local-only",
-    `storage: ${cfg.storage}`,
-    `enrichment: ${enrichment}`,
-  ];
+  const first = isRemoteEnrichment(cfg)
+    ? "Sends digests to Anthropic"
+    : isLocalOnly(cfg) ? "Local only" : "Not verified as local-only";
+  const parts = [first, `storage: ${cfg.storage}`, `enrichment: ${enrichment}`];
   const r = retentionText(cfg);
   if (r) parts.push(r);
   return parts.join(" · ");
+}
+
+/** The two lines under the status text: what leaves the machine, and who sets retention. */
+export function statusDetails(cfg) {
+  const retention = "How long raw recordings are kept is set on the server by RAW_RETENTION_DAYS (0 keeps them until you delete them).";
+  if (isRemoteEnrichment(cfg)) {
+    return [
+      "Raw recordings stay on this machine. Enrichment sends a bounded digest of each session (your prompts, the agent's final messages, trimmed failing output and metrics) to the Anthropic API, because ENRICHER=anthropic is set. Choose the mock or a local Ollama model to send nothing.",
+      retention,
+    ];
+  }
+  return ["Nothing is uploaded. Recordings stay on this machine and are read only by this server.", retention];
 }
 
 /** Why a session's raw recording is gone, worded from the configured retention. */

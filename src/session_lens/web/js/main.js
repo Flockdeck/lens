@@ -1,13 +1,16 @@
 import { parseHash } from "./lib.js";
 import { h, clear } from "./ui.js";
 import { loadConfig, onConfig } from "./config.js";
-import { statusLine, isLocalOnly } from "./lib.js";
+import { statusLine, statusDetails, isLocalOnly, isRemoteEnrichment } from "./lib.js";
 
 const statusText = document.getElementById("status-text");
 const statusBar = document.getElementById("statusbar");
 onConfig((cfg) => {
   statusText.textContent = statusLine(cfg);
-  statusBar.dataset.state = !cfg ? "unknown" : isLocalOnly(cfg) ? "local" : "unverified";
+  statusBar.dataset.state = !cfg ? "unknown" : isRemoteEnrichment(cfg) ? "remote" : isLocalOnly(cfg) ? "local" : "unverified";
+  const [first, second] = statusDetails(cfg);
+  document.getElementById("status-detail-1").textContent = first;
+  document.getElementById("status-detail-2").textContent = second;
 });
 
 const main = document.getElementById("main");

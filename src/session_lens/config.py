@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,7 +20,11 @@ class Settings(BaseSettings):
     # ALLOWED_HOSTS='["127.0.0.1", "localhost"]'.
     allowed_hosts: list[str] = ["127.0.0.1", "localhost", "::1"]
 
-    enricher: Literal["mock", "ollama"] = "mock"
+    # mock (default) and ollama send nothing anywhere. anthropic is the one remote option: it
+    # sends the bounded session digest (not the raw recording) to the Anthropic API, if chosen.
+    enricher: Literal["mock", "ollama", "anthropic"] = "mock"
+    anthropic_api_key: SecretStr | None = None  # ANTHROPIC_API_KEY; never logged or returned
+    anthropic_model: str = "claude-haiku-4-5"
     # Local only: the URL must be this machine (checked when the enricher is built).
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.1:8b"

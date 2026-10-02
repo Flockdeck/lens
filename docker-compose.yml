@@ -77,6 +77,10 @@ services:
     environment: &app-env
       DATABASE_URL: mysql+asyncmy://session_lens:session_lens@mysql:3306/session_lens?charset=utf8mb4
       ENRICHER: ${ENRICHER:-mock}
+      # Only read when ENRICHER=anthropic, which sends each session's digest to the Anthropic API.
+      # Put the key in the git-ignored .env, never in this file.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5}
       STORAGE: filesystem
       DATA_DIR: /data
       RAW_RETENTION_DAYS: ${RAW_RETENTION_DAYS:-30}

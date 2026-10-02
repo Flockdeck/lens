@@ -455,7 +455,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--retention-days", type=int, default=30, help="0 = keep forever")
-    ap.add_argument("--enricher", default="mock", choices=["mock", "ollama"])
+    ap.add_argument("--enricher", default="mock", choices=["mock", "ollama", "anthropic"])
     ap.add_argument("--storage", default="filesystem", choices=["filesystem", "s3"])
     ap.add_argument("--no-config", action="store_true", help="make GET /config fail")
     args = ap.parse_args()

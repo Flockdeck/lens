@@ -79,7 +79,7 @@ class EnrichmentError(Exception):
 class Enricher(Protocol):
     async def enrich(self, analysis: Analysis) -> EnrichmentResult: ...
 
-def build_enricher(settings: Settings) -> Enricher: ...   # mock (default) or local ollama
+def build_enricher(settings: Settings) -> Enricher: ...   # mock (default), local ollama, or opt-in anthropic (needs ANTHROPIC_API_KEY)
 ```
 
 ## storage (owned by the worker component)

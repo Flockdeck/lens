@@ -50,11 +50,16 @@ can talk about both ends of the data.
 A recording contains prompts, file contents and command output. Flockdeck's own policy is that
 this stays on the machine, and session-lens keeps to it:
 
-- **Nothing is uploaded anywhere.** The service makes no outbound network calls. The default
-  enricher is a deterministic mock. The optional real enricher talks to a local
-  [Ollama](https://ollama.com) server, and refuses any URL that is not loopback (or
-  `host.docker.internal` from a container); its HTTP client ignores proxy variables and does not
-  follow redirects.
+- **By default nothing is uploaded.** The default enricher is a deterministic mock, and the optional
+  local one talks to an [Ollama](https://ollama.com) server and refuses any URL that is not loopback
+  (or `host.docker.internal` from a container); its HTTP client ignores proxy variables and does not
+  follow redirects. With either, the service makes no outbound network calls.
+- **Anthropic is an explicit opt-in.** Set `ENRICHER=anthropic` and `ANTHROPIC_API_KEY` (in the
+  git-ignored `.env`; the model is `ANTHROPIC_MODEL`, default `claude-haiku-4-5`) and each session's
+  bounded digest (your prompts, the agent's final messages, trimmed failing output and the metrics,
+  never the raw recording) is sent to `api.anthropic.com`. It is announced in the log at startup, the
+  UI's status bar changes to "Sends digests to Anthropic", and the key is never logged or returned by
+  the API. Without the key the service refuses to start with that enricher.
 - **Loopback, and no key.** The API binds `127.0.0.1` and warns if asked to bind anywhere else, and
   compose publishes ports on `127.0.0.1` only. There is no API key to manage because nothing outside
   this machine can reach it. What a key would also have stopped is a web page you have open talking to

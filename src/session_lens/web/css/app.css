@@ -247,7 +247,8 @@ figure figcaption { font-family: var(--display); font-weight: 650; margin-bottom
 .statusbar summary { cursor: pointer; font-weight: 500; max-width: 1120px; margin: 0 auto; padding: 0; }
 .statusbar[data-state="local"] summary { color: var(--working); }
 .statusbar[data-state="local"] #status-text::before { content: "\2713  "; }
-.statusbar[data-state="unverified"] summary { color: var(--waiting); }
-.statusbar[data-state="unverified"] #status-text::before { content: "\25B2  "; }
+.statusbar[data-state="unverified"] summary, .statusbar[data-state="remote"] summary { color: var(--waiting); }
+.statusbar[data-state="unverified"] #status-text::before,
+.statusbar[data-state="remote"] #status-text::before { content: "\25B2  "; }
 .statusbar[data-state="unknown"] summary { color: var(--idle); }
 .statusbar details > p { max-width: 1120px; margin: .4rem auto 0; color: var(--muted); font-family: var(--body); font-size: 13.5px; }
