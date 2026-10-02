@@ -24,6 +24,18 @@ from session_lens.config import Settings
 
 ALEMBIC_INI = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
+# The tests never read the developer's own choices. Settings reads `.env` (where the real
+# ENRICHER and ANTHROPIC_API_KEY live), and a test that built its settings from it would call the
+# Anthropic API. Environment variables win over `.env`, so pin the enrichment ones here.
+for _name, _value in {
+    "ENRICHER": "mock",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_MODEL": "claude-haiku-4-5",
+    "OLLAMA_URL": "http://127.0.0.1:11434",
+    "OLLAMA_MODEL": "llama3.1:8b",
+}.items():
+    os.environ[_name] = _value
+
 
 def _base_url() -> str:
     return os.environ.get("DATABASE_URL", Settings().database_url)

@@ -79,7 +79,7 @@ def _install_signal_handlers(stop: asyncio.Event) -> None:
 
 async def _worker() -> None:
     from session_lens.db.session import dispose_engine, get_sessionmaker
-    from session_lens.enrich.base import build_enricher
+    from session_lens.runtime_settings import DynamicEnricher
     from session_lens.storage.base import build_store
     from session_lens.worker.loop import run_worker
 
@@ -87,8 +87,9 @@ async def _worker() -> None:
     stop = asyncio.Event()
     _install_signal_handlers(stop)
     store = build_store(settings)
+    sm = get_sessionmaker()
     try:
-        await run_worker(get_sessionmaker(), store, build_enricher(settings), settings, stop)
+        await run_worker(sm, store, DynamicEnricher(sm, settings), settings, stop)
     finally:
         await store.aclose()
         await dispose_engine()

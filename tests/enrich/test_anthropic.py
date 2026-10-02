@@ -244,7 +244,8 @@ def test_choosing_anthropic_without_a_key_stops_at_startup(key: str | None) -> N
 def test_the_default_needs_no_key_and_loads_no_sdk_client() -> None:
     from session_lens.enrich.mock import MockEnricher
 
-    assert Settings().enricher == "mock" and Settings().anthropic_api_key is None
+    assert Settings().enricher == "mock"
+    assert not Settings().anthropic_api_key or not Settings().anthropic_api_key.get_secret_value()
     assert isinstance(build_enricher(Settings()), MockEnricher)
 
 

@@ -27,14 +27,23 @@ from session_lens.api.limits import (
 )
 from session_lens.api.local import LocalOnly
 from session_lens.api.logging import setup_logging
-from session_lens.api.routers import batches, config, health, sessions, stats
+from session_lens.api.routers import (
+    batches,
+    config,
+    health,
+    sessions,
+    stats,
+)
+from session_lens.api.routers import (
+    settings as settings_router,
+)
 from session_lens.config import Settings, get_settings
 
 log = logging.getLogger("session_lens.api")
 
 _HIDDEN_SUFFIXES = (".py", ".pyc")
 # Responses under these prefixes carry recording-derived data: never cache them.
-_NO_STORE_PREFIXES = ("/sessions", "/batches", "/stats", "/config")
+_NO_STORE_PREFIXES = ("/sessions", "/batches", "/stats", "/config", "/settings")
 
 
 def warn_if_not_loopback(host: str) -> bool:
@@ -157,6 +166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(stats.router)
     app.include_router(config.router)
+    app.include_router(settings_router.router)
     # Added last, so outermost: a request for another host name, or a write from another site's
     # page, is turned away before anything else sees it. It stands in for an API token
     # (api/local.py).

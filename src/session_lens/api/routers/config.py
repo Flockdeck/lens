@@ -3,11 +3,12 @@
 from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from session_lens.api.deps import get_app_settings
 from session_lens.api.schemas import RuntimeConfig
 from session_lens.config import Settings
+from session_lens.runtime_settings import effective_settings
 
 router = APIRouter(tags=["config"])
 
@@ -27,8 +28,10 @@ def _version() -> str:
         "kept forever. `cleanup_interval_seconds` is null if retention is not run on a timer."
     ),
 )
-async def runtime_config(settings: Annotated[Settings, Depends(get_app_settings)]) -> RuntimeConfig:
-    # Read through getattr so the endpoint keeps working while these settings are added.
+async def runtime_config(
+    request: Request, settings: Annotated[Settings, Depends(get_app_settings)]
+) -> RuntimeConfig:
+    settings = await effective_settings(request.app.state.sessionmaker, settings)
     return RuntimeConfig(
         storage=getattr(settings, "storage", "filesystem"),
         enricher=settings.enricher,

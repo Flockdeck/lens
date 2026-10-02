@@ -111,7 +111,7 @@ class Usage(BaseModel):
 
 class RuntimeConfig(BaseModel):
     storage: str  # "filesystem" | "s3"
-    enricher: str  # "mock" | "ollama"
+    enricher: str  # "mock" | "ollama" | "anthropic", as set in the UI or the environment
     raw_retention_days: int  # 0 = keep raw recordings forever
     cleanup_interval_seconds: int | None
     version: str

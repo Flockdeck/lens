@@ -23,7 +23,7 @@ from sqlalchemy import text
 from session_lens.api.app import create_app
 from session_lens.db.models import Base
 from session_lens.db.session import make_engine, make_sessionmaker
-from session_lens.enrich.base import build_enricher
+from session_lens.runtime_settings import DynamicEnricher
 from session_lens.storage.base import build_store
 from session_lens.worker.loop import run_worker
 from tests.e2e.conftest import make_settings, recording
@@ -85,7 +85,7 @@ def live_app(database_url: str, tmp_path: pathlib.Path) -> Iterator[LiveApp]:
             run_worker(
                 make_sessionmaker(engine),
                 build_store(settings),
-                build_enricher(settings),
+                DynamicEnricher(make_sessionmaker(engine), settings),
                 settings,
                 stop,
             )
@@ -178,7 +178,7 @@ def test_the_whole_flow_in_a_browser(
         "document.getElementById('status-text').textContent.includes('Local only')"
     )
     assert page.inner_text("#status-text").strip().endswith(FOOTER)
-    assert page.locator("#nav a").count() == 3
+    assert page.locator("#nav a").count() == 4
     assert page.locator("img.brand-mark").count() == 1
     assert page.locator("#token, #signout").count() == 0
     assert "token" not in page.inner_text("body").lower()
@@ -344,3 +344,55 @@ def test_a_page_from_another_origin_cannot_write_and_a_rebound_name_is_refused(
     assert response is not None and response.status == 421
     assert "host not allowed" in page.inner_text("body")
     assert page.goto(live_app.url + "/healthz").status == 200  # its real name still works
+
+
+def test_settings_change_the_footer_and_the_key_is_never_shown_again(
+    browser: sync_api.Browser, live_app: LiveApp
+) -> None:
+    secret = "sk-ant-browser-test-0123456789"
+    page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+    page.set_default_timeout(20000)
+    watched = Watched(page, live_app.url)
+    open_app(page, live_app)
+    page.wait_for_function(
+        "document.getElementById('status-text').textContent.includes('Local only')"
+    )
+
+    page.click("#nav >> text=Settings")
+    page.wait_for_selector("#s-enricher")
+    assert page.locator("#s-warning").is_hidden()
+    assert page.locator("#s-key").is_disabled()  # its group is off while Anthropic is not chosen
+
+    # Anthropic with no key is refused, and says why.
+    page.select_option("#s-enricher", "anthropic")
+    assert page.locator("#s-warning").is_visible()
+    page.click("text=Save settings")
+    page.wait_for_selector("[role=alert]:has-text('API key')")
+
+    page.fill("#s-key", secret)
+    page.click("text=Save settings")
+    page.wait_for_function(
+        "document.getElementById('status-text').textContent.startsWith('Sends digests to')"
+    )
+    assert page.locator("#statusbar").get_attribute("data-state") == "remote"
+    page.wait_for_selector("#s-key[placeholder^='A key is set']")
+    assert page.input_value("#s-key") == ""
+    assert secret not in page.content()
+
+    page.reload()
+    page.wait_for_selector("#s-key[placeholder^='A key is set']")
+    assert page.input_value("#s-enricher") == "anthropic"
+    assert secret not in page.content()
+
+    # Back to the mock: the footer is local again, and the saved key can be removed.
+    page.select_option("#s-enricher", "mock")
+    page.click("text=Save settings")
+    page.wait_for_function(
+        "document.getElementById('status-text').textContent.startsWith('Local only')"
+    )
+    page.click("text=Remove saved key")
+    page.wait_for_selector("#s-key[placeholder='sk-ant-...']")
+    assert watched.foreign == []
+    # The one refusal provoked above is the browser's only complaint.
+    assert [e for e in watched.errors if "422" not in e] == []
+    assert len(watched.errors) <= 1

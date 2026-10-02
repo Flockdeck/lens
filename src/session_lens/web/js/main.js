@@ -23,8 +23,9 @@ const ROUTES = {
   batches: () => import("./views/batch.js"),
   sessions: () => import("./views/sessions.js"),
   insights: () => import("./views/insights.js"),
+  settings: () => import("./views/settings.js"),
 };
-const TITLES = { submit: "Submit", batches: "Batch", sessions: "Sessions", insights: "Insights" };
+const TITLES = { submit: "Submit", batches: "Batch", sessions: "Sessions", insights: "Insights", settings: "Settings" };
 
 async function route() {
   loadConfig();

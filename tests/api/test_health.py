@@ -72,3 +72,10 @@ async def test_config_reports_a_remote_enricher_but_never_the_key(
     assert secret not in resp.text
     assert "anthropic_api_key" not in resp.text
     assert secret not in caplog.text
+
+
+def test_the_tests_do_not_inherit_the_developers_enricher() -> None:
+    """`.env` holds the real choice; a test that read it would call the Anthropic API."""
+    settings = Settings()
+    assert settings.enricher == "mock"
+    assert not (settings.anthropic_api_key and settings.anthropic_api_key.get_secret_value())

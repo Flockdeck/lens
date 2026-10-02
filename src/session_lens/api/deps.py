@@ -125,14 +125,14 @@ def get_store_provider(request: Request) -> StoreProvider:
 
 
 def get_enricher_provider(request: Request) -> EnricherProvider:
-    """Like `get_store_provider`, for the enricher (e.g. a missing API key fails lazily)."""
+    """Like `get_store_provider`, for the enricher. It follows the settings made in the UI."""
 
     def provide() -> "Enricher":
         enricher: Enricher | None = getattr(request.app.state, "enricher", None)
         if enricher is None:
-            from session_lens.enrich.base import build_enricher
+            from session_lens.runtime_settings import DynamicEnricher
 
-            enricher = build_enricher(request.app.state.settings)
+            enricher = DynamicEnricher(request.app.state.sessionmaker, request.app.state.settings)
             request.app.state.enricher = enricher
         return enricher
 

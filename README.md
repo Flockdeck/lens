@@ -54,8 +54,12 @@ this stays on the machine, and session-lens keeps to it:
   local one talks to an [Ollama](https://ollama.com) server and refuses any URL that is not loopback
   (or `host.docker.internal` from a container); its HTTP client ignores proxy variables and does not
   follow redirects. With either, the service makes no outbound network calls.
-- **Anthropic is an explicit opt-in.** Set `ENRICHER=anthropic` and `ANTHROPIC_API_KEY` (in the
-  git-ignored `.env`; the model is `ANTHROPIC_MODEL`, default `claude-haiku-4-5`) and each session's
+- **Anthropic is an explicit opt-in.** Choose it in the UI's Settings page, or set `ENRICHER=anthropic`
+  and `ANTHROPIC_API_KEY` in the git-ignored `.env` (the model is `ANTHROPIC_MODEL`, default
+  `claude-haiku-4-5`). A key entered in Settings is stored in the local database (plain text, on this
+  machine, like the `.env` it stands in for), is write-only (the API says only whether one is set and
+  where it came from), and overrides the environment; the worker picks changes up within seconds, with
+  no restart. Once chosen, each session's
   bounded digest (your prompts, the agent's final messages, trimmed failing output and the metrics,
   never the raw recording) is sent to `api.anthropic.com`. It is announced in the log at startup, the
   UI's status bar changes to "Sends digests to Anthropic", and the key is never logged or returned by

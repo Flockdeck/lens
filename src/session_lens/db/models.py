@@ -156,3 +156,15 @@ class Enrichment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     session: Mapped[Session] = relationship(back_populates="enrichment")
+
+
+class AppSetting(Base):
+    """A setting changed from the UI, which overrides the environment. One row per setting.
+    `value` is plain text (the Anthropic key included: the database lives on the same machine as
+    the `.env` this replaces, and the API never returns it)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

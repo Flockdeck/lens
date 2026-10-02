@@ -174,6 +174,14 @@ class State:
             "version": "0.0.0-fake",
         }
         self.config_fails = False
+        self.settings: dict[str, Any] = {
+            "enricher": "mock",
+            "anthropic_api_key": {"set": False, "source": None},
+            "anthropic_model": "claude-haiku-4-5",
+            "ollama_url": "http://127.0.0.1:11434",
+            "ollama_model": "llama3.1:8b",
+            "overridden": [],
+        }
 
 
 def parse_multipart(content_type: str, body: bytes) -> list[tuple[str, str, bytes]]:
@@ -242,9 +250,11 @@ class Handler(BaseHTTPRequestHandler):
         st = self.server.state
         if url.path in ("/healthz", "/readyz"):
             return self.send_json(200, {"status": "ok"})
-        if not parts or parts[0] not in ("batches", "sessions", "stats", "config"):
+        if not parts or parts[0] not in ("batches", "sessions", "stats", "config", "settings"):
             return self.static(url.path)
         with st.lock:
+            if parts == ["settings"]:
+                return self.send_json(200, st.settings)
             if parts == ["config"]:
                 if st.config_fails:
                     return self.send_json(500, {"detail": "config unavailable"})
@@ -320,6 +330,29 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(410, {"detail": "Raw recording expired"})
                 st.enrich_calls.append(parts[1])
                 return self.send_json(200, st.sessions[parts[1]])
+        self.send_json(404, {"detail": "Not Found"})
+
+    def do_PUT(self) -> None:
+        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        st = self.server.state
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        with st.lock:
+            if parts == ["settings"]:
+                key = st.settings["anthropic_api_key"]
+                new_key = body.get("anthropic_api_key", "unchanged")
+                if body.get("enricher") == "anthropic" and not (key["set"] or new_key):
+                    return self.send_json(
+                        422, {"detail": "the anthropic enricher needs an API key"}
+                    )
+                if new_key is None:
+                    st.settings["anthropic_api_key"] = {"set": False, "source": None}
+                elif new_key != "unchanged":
+                    st.settings["anthropic_api_key"] = {"set": True, "source": "settings"}
+                for name in ("enricher", "anthropic_model", "ollama_url", "ollama_model"):
+                    if body.get(name):
+                        st.settings[name] = body[name]
+                st.config["enricher"] = st.settings["enricher"]
+                return self.send_json(200, st.settings)
         self.send_json(404, {"detail": "Not Found"})
 
     def do_DELETE(self) -> None:
