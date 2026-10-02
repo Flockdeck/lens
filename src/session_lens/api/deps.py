@@ -1,12 +1,10 @@
-"""FastAPI dependencies: settings, database session, bearer-token auth, queue and enricher."""
+"""FastAPI dependencies: settings, database session, queue, store and enricher."""
 
 import logging
-import secrets
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import TYPE_CHECKING, Annotated, Protocol
+from typing import TYPE_CHECKING, Protocol
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.config import Settings
@@ -15,8 +13,6 @@ from session_lens.db.models import Batch, RawRecording
 if TYPE_CHECKING:
     from session_lens.enrich.base import Enricher, EnrichmentResult
     from session_lens.storage.base import RecordingStore
-
-_bearer = HTTPBearer(auto_error=False)
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -27,21 +23,6 @@ def get_app_settings(request: Request) -> Settings:
 async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
     async with request.app.state.sessionmaker() as session:
         yield session
-
-
-def require_token(
-    settings: Annotated[Settings, Depends(get_app_settings)],
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
-) -> None:
-    supplied = credentials.credentials if credentials else ""
-    if not credentials or not secrets.compare_digest(
-        supplied.encode(), settings.api_token.encode()
-    ):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "invalid or missing bearer token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
 
 class QueueApi(Protocol):

@@ -1,4 +1,4 @@
-.PHONY: help install token up down logs migrate api worker lint format typecheck test e2e e2e-browser check build clean-data smoke
+.PHONY: help install up down logs migrate api worker lint format typecheck test e2e e2e-browser check build clean-data smoke
 
 help:
 	@grep -E '^[a-z-]+:' Makefile | cut -d: -f1 | sort
@@ -6,13 +6,7 @@ help:
 install:
 	uv sync
 
-# Writes a random API_TOKEN to the git-ignored .env (kept if already present).
-token:
-	@if grep -qs '^API_TOKEN=' .env; then echo ".env already has an API_TOKEN"; else \
-	  echo "API_TOKEN=$$(uv run python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env; \
-	  echo "wrote API_TOKEN to .env"; fi
-
-up: token
+up:
 	docker compose up --build -d
 
 down:
@@ -68,8 +62,6 @@ clean-data:
 define SMOKE
 set -eu
 url=http://127.0.0.1:8000
-token=$$(sed -n 's/^API_TOKEN=//p' .env)
-[ -n "$$token" ] || { echo "no API_TOKEN in .env (run make token)" >&2; exit 1; }
 json() { uv run python -c "import sys, json; d = json.load(sys.stdin); print($$1)"; }
 up=0
 for i in $$(seq 60); do
@@ -77,11 +69,11 @@ for i in $$(seq 60); do
   sleep 1
 done
 [ "$$up" = 1 ] || { echo "api did not come up" >&2; exit 1; }
-id=$$(curl -fsS -H "Authorization: Bearer $$token" -F files=@tests/fixtures/claude_full.jsonl "$$url/batches" | json 'd["id"]')
+id=$$(curl -fsS -F files=@tests/fixtures/claude_full.jsonl "$$url/batches" | json 'd["id"]')
 echo "batch $$id"
 state=""
 for i in $$(seq 120); do
-  body=$$(curl -fsS -H "Authorization: Bearer $$token" "$$url/batches/$$id")
+  body=$$(curl -fsS "$$url/batches/$$id")
   state=$$(echo "$$body" | json 'd["status"]')
   [ "$$state" = done ] && break
   sleep 1
@@ -89,7 +81,7 @@ done
 [ "$$state" = done ] || { echo "batch not done (status: $$state)" >&2; exit 1; }
 failed=$$(echo "$$body" | json 'd["counts"]["failed"]')
 [ "$$failed" = 0 ] || { echo "$$failed item(s) failed" >&2; exit 1; }
-total=$$(curl -fsS -H "Authorization: Bearer $$token" "$$url/sessions?limit=1" | json 'd["total"]')
+total=$$(curl -fsS "$$url/sessions?limit=1" | json 'd["total"]')
 echo "ok: batch done, $$total session(s)"
 endef
 export SMOKE

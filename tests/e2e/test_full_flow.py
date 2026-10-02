@@ -253,33 +253,52 @@ async def test_uploads_are_checked_one_file_at_a_time(stack: Stack) -> None:
     assert nothing.status_code == 422
 
 
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("GET", "/sessions"),
-        ("GET", "/sessions/1"),
-        ("GET", "/sessions/1/events"),
-        ("POST", "/sessions/1/enrich"),
-        ("DELETE", "/sessions/1"),
-        ("GET", "/batches/1"),
-        ("POST", "/batches/1/cancel"),
-        ("POST", "/batches/1/retry"),
-        ("GET", "/stats/trends"),
-        ("GET", "/stats/compare"),
-        ("GET", "/stats/usage"),
-        ("GET", "/config"),
-    ],
-)
-async def test_every_data_endpoint_needs_the_token(stack: Stack, method: str, path: str) -> None:
-    resp = await stack.anonymous.request(method, path)
-    assert resp.status_code == 401
-    wrong = await stack.anonymous.request(method, path, headers={"Authorization": "Bearer nope"})
-    assert wrong.status_code == 401
+ENDPOINTS = [
+    ("GET", "/sessions"),
+    ("GET", "/sessions/1"),
+    ("GET", "/sessions/1/events"),
+    ("POST", "/sessions/1/enrich"),
+    ("DELETE", "/sessions/1"),
+    ("GET", "/batches/1"),
+    ("POST", "/batches/1/cancel"),
+    ("POST", "/batches/1/retry"),
+    ("GET", "/stats/trends"),
+    ("GET", "/stats/compare"),
+    ("GET", "/stats/usage"),
+    ("GET", "/config"),
+]
 
 
-async def test_health_endpoints_work_without_a_token_and_say_the_stack_is_ready(
-    stack: Stack,
+@pytest.mark.parametrize(("method", "path"), ENDPOINTS)
+async def test_there_is_no_key_but_other_hosts_are_refused(
+    stack: Stack, method: str, path: str
 ) -> None:
-    assert (await stack.anonymous.get("/healthz")).status_code == 200
-    assert (await stack.anonymous.get("/readyz")).status_code == 200
-    assert "text/plain" in (await stack.anonymous.get("/metrics")).headers["content-type"]
+    """Nothing asks for a credential. A request for any name but this machine's is refused."""
+    answered = await stack.client.request(method, path)
+    assert answered.status_code not in (401, 403, 421)
+    assert "www-authenticate" not in answered.headers
+
+    rebound = await stack.client.request(method, path, headers={"Host": "rebound.example"})
+    assert rebound.status_code == 421
+
+
+@pytest.mark.parametrize(("method", "path"), [e for e in ENDPOINTS if e[0] != "GET"])
+async def test_another_sites_page_cannot_write(stack: Stack, method: str, path: str) -> None:
+    resp = await stack.client.request(method, path, headers={"Origin": "https://evil.example"})
+    assert resp.status_code == 403
+
+
+async def test_another_sites_upload_stores_nothing(stack: Stack) -> None:
+    parts = [("files", ("a.jsonl", recording("claude_full", "evil"), "application/x-ndjson"))]
+    resp = await stack.client.post(
+        "/batches", files=parts, headers={"Origin": "https://evil.example"}
+    )
+    assert resp.status_code == 403
+    assert stack.raw_files() == []
+    assert await stack.scalar("SELECT COUNT(*) FROM batch_items") == 0
+
+
+async def test_health_endpoints_say_the_stack_is_ready(stack: Stack) -> None:
+    assert (await stack.client.get("/healthz")).status_code == 200
+    assert (await stack.client.get("/readyz")).status_code == 200
+    assert "text/plain" in (await stack.client.get("/metrics")).headers["content-type"]

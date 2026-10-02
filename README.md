@@ -55,8 +55,14 @@ this stays on the machine, and session-lens keeps to it:
   [Ollama](https://ollama.com) server, and refuses any URL that is not loopback (or
   `host.docker.internal` from a container); its HTTP client ignores proxy variables and does not
   follow redirects.
-- **Loopback by default.** The API binds `127.0.0.1` and warns if asked to bind anywhere else;
-  compose publishes ports on `127.0.0.1` only; there is a bearer token and no CORS.
+- **Loopback, and no key.** The API binds `127.0.0.1` and warns if asked to bind anywhere else, and
+  compose publishes ports on `127.0.0.1` only. There is no API key to manage because nothing outside
+  this machine can reach it. What a key would also have stopped is a web page you have open talking to
+  `127.0.0.1` for you (a form post, or DNS rebinding), so every request is checked: the `Host` must be
+  one of this machine's names (`ALLOWED_HOSTS`, default `127.0.0.1`, `localhost`, `::1`), and a write
+  that carries a foreign `Origin` (or `null`, or `Sec-Fetch-Site: cross-site`) is refused. There are no
+  CORS headers, so a page on another origin cannot read a response either. `curl` and scripts, which
+  send neither header, work as they are.
 - **No residue.** Responses carry `Cache-Control: no-store`; logs hold ids and counts, never
   content, filenames or query strings; the UI makes no external requests (a test enforces it) and
   sends no referrer.
@@ -69,12 +75,11 @@ this stays on the machine, and session-lens keeps to it:
 ### Run it
 
 ```sh
-make token                     # random API_TOKEN into the git-ignored .env
 make up                        # mysql, migrations, api on http://127.0.0.1:8000, worker
 make smoke                     # uploads a fixture, waits for it, prints the session count
 ```
 
-Open http://127.0.0.1:8000 and paste the token from `.env`. To enrich with a local model:
+Open http://127.0.0.1:8000. There is nothing to sign in to. To enrich with a local model:
 `ollama pull llama3.1:8b`, then set `ENRICHER=ollama` (compose has the commented lines for
 reaching Ollama on the host). Without Docker: `docker compose up -d --wait mysql`, then
 `make migrate api` and `make worker` in two terminals. `make check` runs lint, types and tests.
@@ -114,8 +119,8 @@ may only refer to event numbers it was given.
 
 ### API
 
-All JSON; everything except `/healthz`, `/readyz` and `/metrics` needs
-`Authorization: Bearer <API_TOKEN>`.
+All JSON, no credentials. A request addressed to a host name that is not one of this machine's is
+refused with `421`, and a write from another origin with `403` (see "Loopback, and no key").
 
 - `POST /batches`: multipart, one `files` part per `.jsonl` recording. Returns `202` with the
   batch id and per-file rejections (too large, wrong type, empty); `422` if nothing is usable.
@@ -185,11 +190,13 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
   nothing faked between an upload and a result. They submit a mixed batch and read every view of it
   (sessions, metrics, risky actions, paged events, stats, config, privacy headers), resubmit the same and a
   longer recording, age a recording past retention and check the file is really gone and the endpoints
-  answer `410`, delete, cancel and retry, per-file upload checks, and that every data endpoint needs the
-  token. `make e2e-browser` repeats the flow in a real browser (Edge, else Chromium): wrong then right
-  token, a multi-file upload with the empty file flagged, the batch page, filtering, the session page,
-  raw events, re-enrich, delete, insights, phone width without sideways scrolling, keyboard focus, no
-  external request and no console error. I checked they can fail by breaking file deletion and the
+  answer `410`, delete, cancel and retry, per-file upload checks, and that every endpoint refuses a
+  foreign `Host` and every write refuses a foreign `Origin`. `make e2e-browser` repeats the flow in a
+  real browser (Edge, else Chromium): opening the app with nothing to sign in to, a multi-file upload
+  with the empty file flagged, the batch page, filtering, the session page, raw events, re-enrich,
+  delete, insights, phone width without sideways scrolling, keyboard focus, no external request and no
+  console error. It also tries the two attacks a key would have stopped, from a real browser: another
+  page's form post, which is refused, and a host name rebound to this machine, which gets `421`. I checked they can fail by breaking file deletion and the
   done glyph on purpose.
 - GitHub Actions runs ruff, `mypy --strict` and pytest (end-to-end tests and a Chromium browser
   included) against a MySQL service container, and builds the image on pull requests without

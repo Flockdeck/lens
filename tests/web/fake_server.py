@@ -4,7 +4,7 @@
 Serves the static UI from src/session_lens/web/ at `/` and canned, deterministic JSON for the
 API, so the UI can be developed and tested without the real API, worker or MySQL.
 
-    python tests/web/fake_server.py [--port 8765] [--token dev-token]
+    python tests/web/fake_server.py [--port 8765]
 
 Magic behaviour for exercising the UI:
 - batches advance on every GET (queued -> running -> done); the file named `bad*.jsonl` fails
@@ -159,8 +159,7 @@ def make_events(count: int = 350) -> list[dict[str, Any]]:
 
 
 class State:
-    def __init__(self, token: str) -> None:
-        self.token = token
+    def __init__(self) -> None:
         self.lock = threading.Lock()
         self.sessions = make_sessions()
         self.events = make_events()
@@ -220,12 +219,6 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def authed(self) -> bool:
-        if self.headers.get("Authorization") == f"Bearer {self.server.state.token}":
-            return True
-        self.send_json(401, {"detail": "Invalid or missing token"})
-        return False
-
     def static(self, path: str) -> None:
         rel = unquote(path).lstrip("/") or "index.html"
         target = (WEB_ROOT / rel).resolve()
@@ -251,8 +244,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {"status": "ok"})
         if not parts or parts[0] not in ("batches", "sessions", "stats", "config"):
             return self.static(url.path)
-        if not self.authed():
-            return
         with st.lock:
             if parts == ["config"]:
                 if st.config_fails:
@@ -305,8 +296,6 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         parts = [p for p in url.path.split("/") if p]
         st = self.server.state
-        if not self.authed():
-            return
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length)
         with st.lock:
@@ -336,8 +325,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         st = self.server.state
-        if not self.authed():
-            return
         with st.lock:
             if len(parts) == 2 and parts[0] == "sessions" and parts[1] in st.sessions:
                 del st.sessions[parts[1]]
@@ -455,9 +442,9 @@ def aggregate(_: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 class FakeServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, port: int = 0, token: str = "dev-token") -> None:
+    def __init__(self, port: int = 0) -> None:
         super().__init__(("127.0.0.1", port), Handler)
-        self.state = State(token)
+        self.state = State()
 
     @property
     def url(self) -> str:
@@ -467,18 +454,17 @@ class FakeServer(ThreadingHTTPServer):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--token", default="dev-token")
     ap.add_argument("--retention-days", type=int, default=30, help="0 = keep forever")
     ap.add_argument("--enricher", default="mock", choices=["mock", "ollama"])
     ap.add_argument("--storage", default="filesystem", choices=["filesystem", "s3"])
     ap.add_argument("--no-config", action="store_true", help="make GET /config fail")
     args = ap.parse_args()
-    srv = FakeServer(args.port, args.token)
+    srv = FakeServer(args.port)
     srv.state.config.update(
         raw_retention_days=args.retention_days, enricher=args.enricher, storage=args.storage
     )
     srv.state.config_fails = args.no_config
-    print(f"fake session-lens API + UI on {srv.url} (token: {args.token})")
+    print(f"fake session-lens API + UI on {srv.url}")
     srv.serve_forever()
 
 

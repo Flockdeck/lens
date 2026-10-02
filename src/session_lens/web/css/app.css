@@ -61,7 +61,6 @@ main:focus { outline: none; }
 }
 #nav a:hover { color: var(--text); }
 #nav a[aria-current="page"] { color: var(--text); background: var(--raised); box-shadow: inset 0 0 0 1px var(--edge-soft); }
-.topbar-end { display: flex; gap: 2px; }
 main { max-width: 1120px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-right)) 5rem max(16px, env(safe-area-inset-left)); }
 .page-head { margin-bottom: 1rem; }
 .crumb { margin: 0 0 .25rem; font-size: .9rem; }
@@ -112,7 +111,6 @@ input::placeholder { color: var(--idle); }
 }
 .filters.inline { grid-template-columns: repeat(2, minmax(140px, 220px)); }
 .filter-actions { margin: 0; }
-.token-form { max-width: 420px; margin: 4rem auto; display: grid; gap: .75rem; }
 
 .dropzone {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 160px; padding: 1.5rem;

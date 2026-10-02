@@ -33,9 +33,9 @@ async def test_no_store_on_sensitive_responses(
     for path in NO_STORE_PATHS:  # includes 404s and 4xx: error bodies must not be cached either
         resp = await client.get(path)
         assert resp.headers["cache-control"] == "no-store", path
-    unauthorised = await client.get("/sessions", headers={"Authorization": ""})
-    assert unauthorised.status_code == 401
-    assert unauthorised.headers["cache-control"] == "no-store"
+    refused = await client.get("/sessions", headers={"Host": "elsewhere.example"})
+    assert refused.status_code == 421
+    assert refused.headers["cache-control"] == "no-store"
     posted = await client.post("/batches", files=files(("a.jsonl", make_jsonl(1))))
     assert posted.headers["cache-control"] == "no-store"
 
@@ -108,12 +108,5 @@ async def test_config_endpoint(client: httpx.AsyncClient, app_settings: Settings
     assert body["raw_retention_days"] == app_settings.raw_retention_days
     assert body["cleanup_interval_seconds"] is None or body["cleanup_interval_seconds"] > 0
     assert isinstance(body["version"], str) and body["version"]
-    for secret in (app_settings.api_token, "mysql", "password", "secret", "api_key"):
+    for secret in ("mysql", "password", "secret", "api_key", "token"):
         assert secret not in resp.text.lower()
-
-
-async def test_config_requires_auth(client: httpx.AsyncClient) -> None:
-    assert (await client.get("/config", headers={"Authorization": ""})).status_code == 401
-    assert (
-        await client.get("/config", headers={"Authorization": "Bearer nope"})
-    ).status_code == 401

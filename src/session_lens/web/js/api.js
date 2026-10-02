@@ -1,25 +1,6 @@
 // The only module that talks to the network. Everything goes through the documented HTTP API.
 import { buildQuery } from "./lib.js";
 
-const TOKEN_KEY = "session-lens.token";
-
-export function getToken() {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
-export function setToken(token) {
-  try {
-    if (token) sessionStorage.setItem(TOKEN_KEY, token);
-    else sessionStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* sessionStorage unavailable: token lives only until reload */
-  }
-}
-
 export class ApiError extends Error {
   constructor(status, message, body) {
     super(message);
@@ -38,8 +19,6 @@ function describe(status, body) {
 
 async function request(method, path, { query, body, signal } = {}) {
   const headers = { Accept: "application/json" };
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
   let res;
   try {
     res = await fetch(path + buildQuery(query), { method, headers, body, signal });
@@ -57,10 +36,6 @@ async function request(method, path, { query, body, signal } = {}) {
         data = null;
       }
     }
-  }
-  if (res.status === 401) {
-    setToken("");
-    window.dispatchEvent(new CustomEvent("auth-required"));
   }
   if (!res.ok) throw new ApiError(res.status, describe(res.status, data), data);
   return data;

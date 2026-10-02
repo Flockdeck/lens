@@ -2,7 +2,6 @@
 
 import ipaddress
 import logging
-import os
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -10,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 from prometheus_client.platform_collector import PlatformCollector
@@ -21,12 +20,12 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 import session_lens.web
-from session_lens.api.deps import require_token
 from session_lens.api.limits import (
     BodySizeLimit,
     RequestTooLarge,
     request_too_large_handler,
 )
+from session_lens.api.local import LocalOnly
 from session_lens.api.logging import setup_logging
 from session_lens.api.routers import batches, config, health, sessions, stats
 from session_lens.config import Settings, get_settings
@@ -36,7 +35,6 @@ log = logging.getLogger("session_lens.api")
 _HIDDEN_SUFFIXES = (".py", ".pyc")
 # Responses under these prefixes carry recording-derived data: never cache them.
 _NO_STORE_PREFIXES = ("/sessions", "/batches", "/stats", "/config")
-_DEFAULT_TOKEN = "dev-token"  # the Settings default; never acceptable outside local dev
 
 
 def warn_if_not_loopback(host: str) -> bool:
@@ -56,10 +54,6 @@ def warn_if_not_loopback(host: str) -> bool:
     return not loopback
 
 
-def insecure_dev_allowed() -> bool:
-    return os.environ.get("ALLOW_INSECURE_DEV") == "1"
-
-
 class WebFiles(StaticFiles):
     """StaticFiles that never serves the package's Python sources."""
 
@@ -72,12 +66,6 @@ class WebFiles(StaticFiles):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     setup_logging(settings.log_level)
-    dev_mode = insecure_dev_allowed()
-    if not settings.api_token or (settings.api_token == _DEFAULT_TOKEN and not dev_mode):
-        raise RuntimeError(
-            "API_TOKEN is unset or still the default 'dev-token'. Set a real API_TOKEN, or set "
-            "ALLOW_INSECURE_DEV=1 to run locally with the default token."
-        )
 
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
 
@@ -92,13 +80,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log.warning("store close failed", extra={"exc_type": type(exc).__name__})
         await engine.dispose()
 
-    # Interactive docs and the schema are only exposed in explicit dev mode.
+    # No interactive docs: the stock page loads its scripts from a CDN, and nothing may call out.
     app = FastAPI(
-        title="session-lens",
-        lifespan=lifespan,
-        docs_url="/docs" if dev_mode else None,
-        redoc_url=None,
-        openapi_url="/openapi.json" if dev_mode else None,
+        title="session-lens", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
     )
     app.add_exception_handler(RequestTooLarge, request_too_large_handler)
     # Added first, so innermost: counts streamed upload bytes (also for chunked bodies).
@@ -168,12 +152,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.info("request", extra=extra)
         return response
 
-    auth = [Depends(require_token)]
     app.include_router(health.router)
-    app.include_router(batches.router, dependencies=auth)
-    app.include_router(sessions.router, dependencies=auth)
-    app.include_router(stats.router, dependencies=auth)
-    app.include_router(config.router, dependencies=auth)
+    app.include_router(batches.router)
+    app.include_router(sessions.router)
+    app.include_router(stats.router)
+    app.include_router(config.router)
+    # Added last, so outermost: a request for another host name, or a write from another site's
+    # page, is turned away before anything else sees it. It stands in for an API token
+    # (api/local.py).
+    app.add_middleware(LocalOnly, allowed_hosts=settings.allowed_hosts)
 
     web_dir = Path(session_lens.web.__file__).parent
     app.mount("/", WebFiles(directory=web_dir, html=True), name="web")

@@ -19,12 +19,10 @@ import pytest
 
 from tests.web.fake_server import WEB_ROOT, FakeServer
 
-TOKEN = "dev-token"
-
 
 @pytest.fixture
 def server() -> Iterator[FakeServer]:
-    srv = FakeServer(0, TOKEN)
+    srv = FakeServer(0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv
     srv.shutdown()
@@ -38,11 +36,8 @@ def call(
     *,
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
-    token: str | None = TOKEN,
 ) -> tuple[int, Any]:
     h = dict(headers or {})
-    if token:
-        h["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(srv.url + path, data=body, headers=h, method=method)
     try:
         with urllib.request.urlopen(req) as res:  # noqa: S310
@@ -74,11 +69,6 @@ def test_static_ui_is_served(server: FakeServer) -> None:
         assert b"session-lens" in res.read()
     with urllib.request.urlopen(server.url + "/js/main.js") as res:  # noqa: S310
         assert "javascript" in res.headers["Content-Type"]
-
-
-def test_api_requires_token(server: FakeServer) -> None:
-    assert call(server, "GET", "/sessions", token=None)[0] == 401
-    assert call(server, "GET", "/sessions", token="nope")[0] == 401
 
 
 def test_batch_lifecycle_with_rejections_and_retry(server: FakeServer) -> None:
@@ -165,9 +155,7 @@ def test_js_helpers_under_node() -> None:
 
 
 def test_config_shape_and_no_store(server: FakeServer) -> None:
-    req = urllib.request.Request(
-        server.url + "/config", headers={"Authorization": f"Bearer {TOKEN}"}
-    )
+    req = urllib.request.Request(server.url + "/config")
     with urllib.request.urlopen(req) as res:  # noqa: S310
         assert res.headers["Cache-Control"] == "no-store"
         cfg = json.loads(res.read())
@@ -178,7 +166,6 @@ def test_config_shape_and_no_store(server: FakeServer) -> None:
         "cleanup_interval_seconds",
         "version",
     }
-    assert call(server, "GET", "/config", token=None)[0] == 401
 
 
 def web_files() -> list[Path]:
@@ -212,9 +199,9 @@ def test_index_sends_no_referrer_and_loads_only_local_assets() -> None:
         assert not re.match(r"^(?:[a-z]+:)?//", ref) or ref.startswith("data:"), ref
 
 
-def test_token_and_filenames_never_go_into_urls() -> None:
+def test_the_ui_holds_no_credentials_and_filenames_never_go_into_urls() -> None:
     api_js = (WEB_ROOT / "js" / "api.js").read_text("utf-8")
-    assert "Authorization" in api_js and "access_token" not in api_js
+    assert "Authorization" not in api_js and "sessionStorage" not in api_js
     assert "location.search" not in "".join(p.read_text("utf-8") for p in web_files())
 
 

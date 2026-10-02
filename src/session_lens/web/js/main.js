@@ -1,7 +1,6 @@
-import { getToken, setToken } from "./api.js";
 import { parseHash } from "./lib.js";
 import { h, clear } from "./ui.js";
-import { loadConfig, onConfig, resetConfig } from "./config.js";
+import { loadConfig, onConfig } from "./config.js";
 import { statusLine, isLocalOnly } from "./lib.js";
 
 const statusText = document.getElementById("status-text");
@@ -25,8 +24,6 @@ const ROUTES = {
 const TITLES = { submit: "Submit", batches: "Batch", sessions: "Sessions", insights: "Insights" };
 
 async function route() {
-  if (!getToken()) return showTokenPrompt();
-  nav.hidden = false;
   loadConfig();
   const { parts, query } = parseHash(location.hash);
   let name = parts[0] in ROUTES ? parts[0] : "submit";
@@ -49,30 +46,6 @@ async function route() {
   window.scrollTo(0, 0);
 }
 
-function showTokenPrompt(message) {
-  if (cleanup) { cleanup(); cleanup = null; }
-  renderId += 1;
-  nav.hidden = true;
-  const input = h("input", { id: "token", type: "password", autocomplete: "off", required: true, "aria-describedby": "token-help" });
-  const form = h("form", { class: "token-form" },
-    h("h1", null, "API token"),
-    h("p", { id: "token-help", class: "muted" }, "Enter the API token for this server. It is kept in this browser tab only and cleared when you close it."),
-    message ? h("p", { class: "problem", role: "alert" }, message) : null,
-    h("div", { class: "field" }, h("label", { for: "token" }, "Token"), input),
-    h("button", { class: "btn btn-primary", type: "submit" }, "Continue"));
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    setToken(input.value.trim());
-    resetConfig();
-    nav.hidden = false;
-    route();
-  });
-  clear(main).append(form);
-  input.focus();
-}
-
 window.addEventListener("hashchange", route);
-window.addEventListener("auth-required", () => showTokenPrompt("That token was not accepted."));
 
-document.getElementById("signout").addEventListener("click", () => { setToken(""); resetConfig(); showTokenPrompt(); });
 route();

@@ -20,9 +20,6 @@ from session_lens.config import Settings
 from session_lens.db.models import Base
 from session_lens.storage.memory import InMemoryStore
 
-TOKEN = "test-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
 
 @pytest_asyncio.fixture
 async def engine(database_url: str) -> AsyncIterator[AsyncEngine]:
@@ -46,7 +43,7 @@ async def db(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 async def app_settings(database_url: str) -> Settings:
     return Settings(
         database_url=database_url,
-        api_token=TOKEN,
+        allowed_hosts=["test"],
         max_file_bytes=1024,
         max_files_per_batch=5,
         max_request_bytes=8192,
@@ -66,9 +63,7 @@ async def client(
     app.dependency_overrides[get_store_provider] = lambda: lambda: store
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test", headers=AUTH
-        ) as c:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             c.app = app  # type: ignore[attr-defined]
             yield c
 

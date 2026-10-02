@@ -157,8 +157,8 @@ take the store explicitly):
   `retry_failed(session, batch_id)`, `cancel_batch(session, batch_id)`, plus the storage helpers
   above and `upsert_enrichment`.
 
-## HTTP API (all JSON; everything except `/healthz`, `/readyz`, `/metrics` needs
-`Authorization: Bearer <API_TOKEN>`)
+## HTTP API (all JSON, no credentials: the service is for this machine only. A request for another
+host name gets `421`, a write from another origin `403`; see `api/local.py`)
 
 - `POST /batches` (multipart, field `files`, repeated) → `202 {id, accepted: [...], rejected:
   [{filename, reason}]}`; `422` if nothing accepted

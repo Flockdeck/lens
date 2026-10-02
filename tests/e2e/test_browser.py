@@ -26,7 +26,7 @@ from session_lens.db.session import make_engine, make_sessionmaker
 from session_lens.enrich.base import build_enricher
 from session_lens.storage.base import build_store
 from session_lens.worker.loop import run_worker
-from tests.e2e.conftest import AUTH, TOKEN, make_settings, recording
+from tests.e2e.conftest import make_settings, recording
 
 sync_api = pytest.importorskip("playwright.sync_api")
 pytestmark = pytest.mark.browser
@@ -41,14 +41,14 @@ class LiveApp:
 
     def upload(self, *files: tuple[str, bytes]) -> int:
         parts = [("files", (name, data, "application/x-ndjson")) for name, data in files]
-        resp = httpx.post(f"{self.url}/batches", files=parts, headers=AUTH, timeout=30)
+        resp = httpx.post(f"{self.url}/batches", files=parts, timeout=30)
         assert resp.status_code == 202, resp.text
         return int(resp.json()["id"])
 
     def wait_idle(self, batch_id: int, within: float = 30.0) -> None:
         deadline = time.monotonic() + within
         while time.monotonic() < deadline:
-            body = httpx.get(f"{self.url}/batches/{batch_id}", headers=AUTH, timeout=10).json()
+            body = httpx.get(f"{self.url}/batches/{batch_id}", timeout=10).json()
             if body["counts"]["queued"] == 0 and body["counts"]["running"] == 0:
                 return
             time.sleep(0.1)
@@ -66,7 +66,7 @@ def live_app(database_url: str, tmp_path: pathlib.Path) -> Iterator[LiveApp]:
     """uvicorn and the worker on one event loop in a thread, with an empty database."""
     port = _free_port()
     data_dir = tmp_path / "data"
-    settings = make_settings(database_url, data_dir)
+    settings = make_settings(database_url, data_dir, hosts=("127.0.0.1", "localhost"))
     leave = threading.Event()
     failure: list[BaseException] = []
 
@@ -129,7 +129,9 @@ def browser() -> Iterator[sync_api.Browser]:
         launched = None
         for options in ({"channel": "msedge"}, {}):
             try:
-                launched = p.chromium.launch(**options)
+                launched = p.chromium.launch(
+                    **options, args=["--host-resolver-rules=MAP rebound.example 127.0.0.1"]
+                )
                 break
             except Exception:
                 continue
@@ -157,10 +159,8 @@ class Watched:
         page.on("console", lambda m: self.errors.append(m.text) if m.type == "error" else None)
 
 
-def sign_in(page: sync_api.Page, app: LiveApp) -> None:
+def open_app(page: sync_api.Page, app: LiveApp) -> None:
     page.goto(app.url + "/")
-    page.fill("#token", TOKEN)
-    page.click("button[type=submit]")
     page.wait_for_selector("#file-input", state="attached")
 
 
@@ -171,18 +171,8 @@ def test_the_whole_flow_in_a_browser(
     page.set_default_timeout(20000)
     watched = Watched(page, live_app.url)
 
-    # --- sign in: a wrong token is refused, the right one is accepted -------------------------
+    # --- opening it: no sign-in, no key, and the footer says what stays on this machine --------
     page.goto(live_app.url + "/")
-    page.get_by_role("heading", name="API token").wait_for()
-    assert "Status unavailable" in page.inner_text("#status-text")
-    page.fill("#token", "not-the-token")
-    page.click("button[type=submit]")
-    page.wait_for_selector("text=That token was not accepted")
-    # the one console error this flow is allowed: the browser logging the 401 it provoked on purpose
-    assert watched.errors and all("401" in e for e in watched.errors), watched.errors
-    watched.errors.clear()
-    page.fill("#token", TOKEN)
-    page.click("button[type=submit]")
     page.wait_for_selector("#file-input", state="attached")
     page.wait_for_function(
         "document.getElementById('status-text').textContent.includes('Local only')"
@@ -190,6 +180,9 @@ def test_the_whole_flow_in_a_browser(
     assert page.inner_text("#status-text").strip().endswith(FOOTER)
     assert page.locator("#nav a").count() == 3
     assert page.locator("img.brand-mark").count() == 1
+    assert page.locator("#token, #signout").count() == 0
+    assert "token" not in page.inner_text("body").lower()
+    assert page.evaluate("sessionStorage.length + localStorage.length") == 0  # nothing stored
 
     # --- submit: several files at once, an empty one flagged before anything is sent ----------
     files = {
@@ -257,10 +250,6 @@ def test_the_whole_flow_in_a_browser(
     assert page.locator("svg.chart").count() >= 2
     assert page.get_by_role("heading", name="Compare").count() == 1
 
-    # --- signing out returns to the prompt -------------------------------------------------------
-    page.click("#signout")
-    page.get_by_role("heading", name="API token").wait_for()
-
     # nothing left the machine, and the page never complained
     assert watched.foreign == []
     assert watched.errors == []
@@ -273,7 +262,7 @@ def test_a_phone_sized_screen_keeps_its_nav_and_does_not_scroll_sideways(
     page = browser.new_context(viewport={"width": 390, "height": 844}).new_page()
     page.set_default_timeout(20000)
     watched = Watched(page, live_app.url)
-    sign_in(page, live_app)
+    open_app(page, live_app)
     assert page.locator("#nav a").first.is_visible()
 
     for route in ("sessions", "insights"):
@@ -292,11 +281,7 @@ def test_the_keyboard_reaches_everything_and_the_focus_is_visible(
     page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
     page.set_default_timeout(20000)
 
-    # the token form works from the keyboard alone
-    page.goto(live_app.url + "/")
-    page.keyboard.type(TOKEN)  # the field has the focus when the prompt appears
-    page.keyboard.press("Enter")
-    page.wait_for_selector("#file-input", state="attached")
+    open_app(page, live_app)
 
     # the skip link shows when focused, and Enter moves the focus to the main area
     page.focus(".skip")
@@ -307,7 +292,7 @@ def test_the_keyboard_reaches_everything_and_the_focus_is_visible(
     # Tab walks the header in order, every stop draws the accent ring, and Enter follows a link
     page.focus(".brand")
     stops = []
-    for _ in range(4):
+    for _ in range(3):
         page.keyboard.press("Tab")
         stops.append(page.evaluate("document.activeElement.textContent.trim()"))
         ring = page.evaluate(
@@ -315,7 +300,47 @@ def test_the_keyboard_reaches_everything_and_the_focus_is_visible(
             " return [s.outlineStyle, s.outlineWidth, s.outlineColor]; })()"
         )
         assert ring == ["solid", "2px", "rgb(79, 209, 219)"], ring
-    assert stops == ["Submit", "Sessions", "Insights", "Change token"]
+    assert stops == ["Submit", "Sessions", "Insights"]
     page.focus("#nav a[href='#/sessions']")
     page.keyboard.press("Enter")
     page.wait_for_url("**/#/sessions")
+
+
+def test_a_page_from_another_origin_cannot_write_and_a_rebound_name_is_refused(
+    browser: sync_api.Browser, live_app: LiveApp
+) -> None:
+    """The two things that stand in for an API key, tried from a real browser."""
+    batch_id = live_app.upload(("run.jsonl", recording("claude_full", "victim")))
+    live_app.wait_idle(batch_id)
+    page = browser.new_context().new_page()
+    page.set_default_timeout(20000)
+
+    # another site's page submits a form to the app: the browser sends that origin; it is refused
+    page.set_content(
+        f'<form id="f" method="post" action="{live_app.url}/batches/{batch_id}/cancel"></form>'
+    )
+    with page.expect_navigation():
+        page.evaluate("document.getElementById('f').submit()")
+    assert "cross-origin request refused" in page.inner_text("body")
+    body = httpx.get(f"{live_app.url}/batches/{batch_id}", timeout=10).json()
+    assert body["status"] != "cancelled"
+
+    # the same for an upload, and nothing is stored (a fresh page, so not on the app's own origin)
+    before = len(list(live_app.data_dir.rglob("*.jsonl")))
+    page = browser.new_context().new_page()
+    page.set_default_timeout(20000)
+    page.set_content(
+        f'<form id="f" method="post" action="{live_app.url}/batches" enctype="multipart/form-data">'
+        '<input type="file" name="files"></form>'
+    )
+    with page.expect_navigation():
+        page.evaluate("document.getElementById('f').submit()")
+    assert "cross-origin request refused" in page.inner_text("body")
+    assert len(list(live_app.data_dir.rglob("*.jsonl"))) == before
+
+    # a host name that points at this machine but is not one of its own: refused (DNS rebinding)
+    port = live_app.url.rsplit(":", 1)[1]
+    response = page.goto(f"http://rebound.example:{port}/sessions")
+    assert response is not None and response.status == 421
+    assert "host not allowed" in page.inner_text("body")
+    assert page.goto(live_app.url + "/healthz").status == 200  # its real name still works

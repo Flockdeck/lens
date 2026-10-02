@@ -84,11 +84,11 @@ def test_check_bucket_s3_rule(s3_store_sync, monkeypatch, capsys):
     assert run("check-bucket") == 0  # a warning only, without --strict
 
 
-def test_api_help_mentions_the_token_guard(capsys):
+def test_api_help_says_there_is_no_key_and_names_the_host_guard(capsys):
     with pytest.raises(SystemExit):
         run("api", "--help")
     out = capsys.readouterr().out
-    assert "ALLOW_INSECURE_DEV" in out and "API_TOKEN" in out
+    assert "ALLOWED_HOSTS" in out and "API_TOKEN" not in out and "ALLOW_INSECURE_DEV" not in out
 
 
 def test_api_binds_to_this_machine_by_default(monkeypatch):

@@ -254,8 +254,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "api",
         help="serve the HTTP API and web UI",
         description=(
-            "Serve the HTTP API and web UI. The app refuses to start with an empty or default "
-            "API_TOKEN unless ALLOW_INSECURE_DEV=1 is set (local development only)."
+            "Serve the HTTP API and web UI. There is no API key: the service is for this machine "
+            "only, and refuses requests addressed to any other host name or sent by a page on "
+            "another origin (see ALLOWED_HOSTS)."
         ),
     )
     api.add_argument(

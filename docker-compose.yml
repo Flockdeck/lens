@@ -1,5 +1,5 @@
 # Local-only stack: recordings never leave this machine.
-#   make up                    # token, then mysql, migrate, api (127.0.0.1:8000) and worker
+#   make up                    # mysql, migrate, api (127.0.0.1:8000) and worker
 #   docker compose up -d mysql # just the database, for tests and `make api` / `make worker`
 # Raw recordings are stored on the filesystem in the shared `data` volume (DATA_DIR=/data).
 services:
@@ -76,8 +76,6 @@ services:
     command: ["session-lens", "migrate"]
     environment: &app-env
       DATABASE_URL: mysql+asyncmy://session_lens:session_lens@mysql:3306/session_lens?charset=utf8mb4
-      # Random, generated into the git-ignored .env by `make token`.
-      API_TOKEN: ${API_TOKEN:?run `make token` first}
       ENRICHER: ${ENRICHER:-mock}
       STORAGE: filesystem
       DATA_DIR: /data

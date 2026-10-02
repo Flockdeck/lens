@@ -29,8 +29,6 @@ from session_lens.storage.base import RecordingStore, build_store
 from session_lens.worker.loop import run_worker
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[1] / "fixtures"
-TOKEN = "e2e-token"
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
 FIXTURE_SESSION = b"20261001T101530Z-0123abcd"
 
 MAX_FILE_BYTES = 64 * 1024
@@ -44,10 +42,12 @@ def recording(name: str, suffix: str | None = None) -> bytes:
     return data
 
 
-def make_settings(database_url: str, data_dir: pathlib.Path) -> Settings:
+def make_settings(
+    database_url: str, data_dir: pathlib.Path, hosts: tuple[str, ...] = ("e2e",)
+) -> Settings:
     return Settings(
         database_url=database_url,
-        api_token=TOKEN,
+        allowed_hosts=list(hosts),
         storage="filesystem",
         data_dir=str(data_dir),
         enricher="mock",
@@ -64,8 +64,7 @@ def make_settings(database_url: str, data_dir: pathlib.Path) -> Settings:
 
 @dataclass
 class Stack:
-    client: httpx.AsyncClient  # carries the API token
-    anonymous: httpx.AsyncClient  # carries nothing
+    client: httpx.AsyncClient
     sm: async_sessionmaker[AsyncSession]
     store: RecordingStore
     enricher: Enricher
@@ -164,13 +163,9 @@ async def stack(database_url: str, tmp_path: pathlib.Path) -> AsyncIterator[Stac
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with (
-            httpx.AsyncClient(transport=transport, base_url="http://e2e", headers=AUTH) as client,
-            httpx.AsyncClient(transport=transport, base_url="http://e2e") as anonymous,
-        ):
+        async with httpx.AsyncClient(transport=transport, base_url="http://e2e") as client:
             s = Stack(
                 client=client,
-                anonymous=anonymous,
                 sm=make_sessionmaker(engine),
                 store=build_store(settings),
                 enricher=build_enricher(settings),

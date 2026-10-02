@@ -1,26 +1,14 @@
 import httpx
-import pytest
 
 from session_lens.storage.memory import InMemoryStore
 
 
-async def test_probes_need_no_token(client: httpx.AsyncClient) -> None:
-    anon = {"Authorization": ""}
-    assert (await client.get("/healthz", headers=anon)).json() == {"status": "ok"}
-    assert (await client.get("/readyz", headers=anon)).status_code == 200
-    metrics = await client.get("/metrics", headers=anon)
+async def test_probes_answer(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/healthz")).json() == {"status": "ok"}
+    assert (await client.get("/readyz")).status_code == 200
+    metrics = await client.get("/metrics")
     assert metrics.status_code == 200
     assert "session_lens_queue_items" in metrics.text
-
-
-@pytest.mark.parametrize(
-    "path", ["/batches/1", "/sessions", "/sessions/1", "/stats/usage", "/stats/trends"]
-)
-@pytest.mark.parametrize("header", ["", "Bearer wrong", "Basic dGVzdC10b2tlbg=="])
-async def test_auth_required(client: httpx.AsyncClient, path: str, header: str) -> None:
-    resp = await client.get(path, headers={"Authorization": header})
-    assert resp.status_code == 401
-    assert resp.headers["www-authenticate"] == "Bearer"
 
 
 async def test_request_metrics_recorded(client: httpx.AsyncClient) -> None:
@@ -30,8 +18,7 @@ async def test_request_metrics_recorded(client: httpx.AsyncClient) -> None:
 
 
 async def test_static_ui_hides_python_sources(client: httpx.AsyncClient) -> None:
-    anon = {"Authorization": ""}
-    assert (await client.get("/__init__.py", headers=anon)).status_code == 404
+    assert (await client.get("/__init__.py")).status_code == 404
 
 
 async def test_readyz_503_when_store_down(client: httpx.AsyncClient, store: InMemoryStore) -> None:
@@ -49,7 +36,7 @@ async def test_readyz_503_when_db_unreachable(database_url: str, store: InMemory
     from session_lens.config import Settings
 
     bad = database_url.rsplit("@", 1)[0] + "@127.0.0.1:1/none"
-    app = create_app(Settings(database_url=bad, api_token="t"))
+    app = create_app(Settings(database_url=bad, allowed_hosts=["test"]))
     app.dependency_overrides[get_store_provider] = lambda: lambda: store
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)

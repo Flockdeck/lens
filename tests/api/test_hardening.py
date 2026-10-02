@@ -27,39 +27,11 @@ from session_lens.storage.memory import InMemoryStore
 from tests.api.test_batches import files
 from tests.api.test_sessions import _Enricher, names, seed, use_enricher
 
-# ------------------------------------------------------------------ auth and startup
+# ------------------------------------------------------------------ docs
 
 
-async def test_same_length_wrong_token(client: httpx.AsyncClient) -> None:
-    resp = await client.get("/stats/usage", headers={"Authorization": "Bearer test-tokeX"})
-    assert resp.status_code == 401
-
-
-async def test_refuses_default_or_empty_token(
-    app_settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("ALLOW_INSECURE_DEV", raising=False)
-    with pytest.raises(RuntimeError, match="API_TOKEN"):
-        create_app(app_settings.model_copy(update={"api_token": "dev-token"}))
-    with pytest.raises(RuntimeError, match="API_TOKEN"):
-        create_app(app_settings.model_copy(update={"api_token": ""}))
-
-
-async def test_dev_mode_allows_default_token_and_docs(
-    app_settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ALLOW_INSECURE_DEV", "1")
-    app = create_app(app_settings.model_copy(update={"api_token": "dev-token"}))
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            assert (await c.get("/docs")).status_code == 200
-            assert (await c.get("/openapi.json")).status_code == 200
-
-
-async def test_docs_hidden_outside_dev_mode(
-    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_no_interactive_docs_or_schema(client: httpx.AsyncClient) -> None:
+    """The stock docs page loads its scripts from a CDN, and nothing here may call out."""
     for path in ("/docs", "/openapi.json", "/redoc"):
         assert (await client.get(path)).status_code == 404
 

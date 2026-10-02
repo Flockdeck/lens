@@ -13,7 +13,11 @@ class Settings(BaseSettings):
     database_url: str = (
         "mysql+asyncmy://session_lens:session_lens@127.0.0.1:3306/session_lens?charset=utf8mb4"
     )
-    api_token: str = "dev-token"
+
+    # Names this machine answers to. A request addressed to any other name (DNS rebinding) is
+    # refused, and so is a write from a page on another origin. To change the list, set
+    # ALLOWED_HOSTS='["127.0.0.1", "localhost"]'.
+    allowed_hosts: list[str] = ["127.0.0.1", "localhost", "::1"]
 
     enricher: Literal["mock", "ollama"] = "mock"
     # Local only: the URL must be this machine (checked when the enricher is built).
