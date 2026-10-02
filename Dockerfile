@@ -12,8 +12,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY README.md alembic.ini ./
 COPY alembic ./alembic
 COPY src ./src
+# --reinstall-package: uv would otherwise reuse the wheel it cached for this project (the version has not
+# changed) and ship the previous source. Only the project is rebuilt; the dependencies stay cached.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --frozen --no-editable
+    uv sync --no-dev --frozen --no-editable --reinstall-package session-lens
 
 FROM python:3.12-slim
 RUN groupadd --system --gid 65532 app \
