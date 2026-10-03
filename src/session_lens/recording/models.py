@@ -21,8 +21,18 @@ KNOWN_TYPES = frozenset(
         "permission_prompt",
         "permission_outcome",
         "status",
+        "conversation_title",
+        "conversation_compacted",
     }
 )
+
+# Lines that only files made from live hooks (Flockdeck 0.3.47) hold. A transcript made from the
+# agent's stored conversation has none of them.
+HOOK_ONLY_TYPES = frozenset({"session", "permission_prompt", "permission_outcome", "status"})
+
+# `recording_started` text that says how the file was made (docs/recording-format.md section 6).
+TRANSCRIPT_START_TEXT = "start of the transcript"
+HOOK_START_TEXTS = frozenset({"turned on", "resumed"})
 
 # Event types that only the recorder itself writes. A file holding nothing else comes from an
 # agent Flockdeck has no hooks for.
@@ -47,7 +57,14 @@ _LOOSE_STR_FIELDS = (
     "status",
     "previous",
     "detail",
+    "title",
+    "trigger",
+    "stop_reason",
+    "git_branch",
+    "cwd",
+    "agent_version",
 )
+_LOOSE_INT_FIELDS = ("tokens_before", "tokens_after")
 _LOOSE_BOOL_FIELDS = ("redacted", "is_error", "interrupted", "inferred")
 
 
@@ -57,6 +74,20 @@ def parse_time(value: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt
+
+
+_USAGE_KEYS = ("inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens")
+
+
+class TokenUsage(BaseModel):
+    """Tokens a model reply used, as the agent stored them. Not a bill."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    input_tokens: int = Field(default=0, alias="inputTokens")
+    output_tokens: int = Field(default=0, alias="outputTokens")
+    cache_creation_input_tokens: int = Field(default=0, alias="cacheCreationInputTokens")
+    cache_read_input_tokens: int = Field(default=0, alias="cacheReadInputTokens")
 
 
 class Event(BaseModel):
@@ -85,6 +116,10 @@ class Event(BaseModel):
     subagent: str | None = None
     redacted: bool | None = None
     clipped: dict[str, int] | None = None
+    # Written by transcripts only (Flockdeck 0.3.48 and later), where the stored entry has them.
+    git_branch: str | None = Field(default=None, alias="gitBranch")
+    cwd: str | None = None
+    agent_version: str | None = Field(default=None, alias="agentVersion")
 
     # Type-specific fields. All optional here: the parser must not reject a line for lacking one.
     text: str | None = None
@@ -101,6 +136,13 @@ class Event(BaseModel):
     status: str | None = None
     previous: str | None = None
     detail: str | None = None
+    # conversation_title, conversation_compacted, and the per-reply usage of a transcript
+    title: str | None = None
+    trigger: str | None = None
+    tokens_before: int | None = Field(default=None, alias="tokensBefore")
+    tokens_after: int | None = Field(default=None, alias="tokensAfter")
+    usage: TokenUsage | None = None
+    stop_reason: str | None = Field(default=None, alias="stopReason")
 
     @field_validator("time", mode="before")
     @classmethod
@@ -119,6 +161,22 @@ class Event(BaseModel):
     @classmethod
     def _loose_bool(cls, value: Any) -> Any:
         return value if isinstance(value, bool) else None
+
+    @field_validator(*_LOOSE_INT_FIELDS, mode="before")
+    @classmethod
+    def _loose_int(cls, value: Any) -> Any:
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    @field_validator("usage", mode="before")
+    @classmethod
+    def _loose_usage(cls, value: Any) -> Any:
+        # all four counts, as non-negative integers, or the field reads as absent
+        if isinstance(value, dict) and all(
+            isinstance(value.get(key), int) and not isinstance(value.get(key), bool)
+            for key in _USAGE_KEYS
+        ):
+            return {key: max(0, value[key]) for key in _USAGE_KEYS}
+        return None
 
     @field_validator("clipped", mode="before")
     @classmethod
@@ -141,6 +199,9 @@ class PermissionStats(BaseModel):
     inferred: int = 0
 
 
+SourceFormat = Literal["transcript", "hooks"]
+
+
 class Metrics(BaseModel):
     duration_seconds: float = 0.0
     turns: int = 0
@@ -152,6 +213,16 @@ class Metrics(BaseModel):
     unpaired_calls: int = 0
     permission: PermissionStats = Field(default_factory=PermissionStats)
     status_seconds: dict[str, float] = Field(default_factory=dict)
+    # Whether the file has any permission lines / status lines at all. A transcript made from the
+    # agent's stored conversation has none, so `permission` (all zero) and `status_seconds`
+    # (empty) say nothing there: no denials were recorded, which is not the same as none
+    # happening. None on metrics stored before these fields existed.
+    permissions_recorded: bool | None = None
+    status_recorded: bool | None = None
+    # Replies that were summarised to make room (conversation_compacted lines).
+    compactions: int = 0
+    # Sum of the per-reply `usage` of a transcript; None if no line has one.
+    usage: TokenUsage | None = None
     redacted_lines: int = 0
     clipped_lines: int = 0
     # Every model the recording names, in order of first appearance. A session can change model
@@ -198,6 +269,8 @@ class Digest(BaseModel):
     project: str | None = None
     agent: str | None = None
     model: str | None = None
+    title: str | None = None
+    source_format: SourceFormat | None = None
     completeness: str = "clean"
     metrics: Metrics = Field(default_factory=Metrics)
     user_prompts: list[DigestMessage] = Field(default_factory=list)
@@ -218,8 +291,16 @@ class Analysis(BaseModel):
     project: str | None = None
     agent: str | None = None
     model: str | None = None
+    # In a transcript made from the agent's stored conversation `pane` holds the conversation's
+    # id (not a pane's), and there is no `pane_name`.
     pane: str | None = None
     pane_name: str | None = None
+    conversation: str | None = None
+    # The conversation's last title (a `conversation_title` line), if the file has one.
+    title: str | None = None
+    # "transcript": made from the agent's stored conversation (Flockdeck 0.3.48 and later);
+    # "hooks": made from live hook events (0.3.47); None where the file does not say.
+    source_format: SourceFormat | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     completeness: Literal["clean", "truncated", "cut_off", "partial_agent"]

@@ -10,8 +10,9 @@ from collections.abc import Iterable
 
 from pydantic import ValidationError
 
-from session_lens.recording.digest import build_digest
+from session_lens.recording.digest import build_digest, last_title
 from session_lens.recording.files import MAX_ITEMS, extract_files_touched
+from session_lens.recording.format import detect_format
 from session_lens.recording.metrics import completeness as compute_completeness
 from session_lens.recording.metrics import compute_metrics
 from session_lens.recording.models import (
@@ -170,6 +171,9 @@ def analyze(events: list[Event], parse_warnings: Iterable[str] | None = None) ->
         model=next((e.model for e in events if e.model), None),
         pane=first.pane,
         pane_name=next((e.pane_name for e in events if e.pane_name), None),
+        conversation=next((e.conversation for e in events if e.conversation), None),
+        title=last_title(events),
+        source_format=detect_format(events),
         started_at=first.time,
         ended_at=events[-1].time,
         completeness=completeness,

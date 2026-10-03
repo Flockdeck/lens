@@ -3,12 +3,14 @@
 from collections import Counter, deque
 from typing import Literal
 
+from session_lens.recording.format import is_agent_prompt
 from session_lens.recording.models import (
     KNOWN_TYPES,
     RECORDER_TYPES,
     Event,
     Metrics,
     PermissionStats,
+    TokenUsage,
 )
 
 Completeness = Literal["clean", "truncated", "cut_off", "partial_agent"]
@@ -98,6 +100,8 @@ def compute_metrics(events: list[Event]) -> Metrics:
     idless_calls: Counter[str] = Counter()
     idless_results: Counter[str] = Counter()
     pending = _PendingPrompts()
+    usage = TokenUsage()
+    has_usage = False
 
     for e in events:
         if e.redacted:
@@ -106,9 +110,12 @@ def compute_metrics(events: list[Event]) -> Metrics:
             m.clipped_lines += 1
 
         if e.type == "user_prompt":
-            # A <task-notification> is Claude Code talking to itself, not a turn the user took.
-            if not e.subagent and not (e.text or "").startswith("<task-notification"):
+            # A <task-notification> or an injected reminder is Claude Code talking to itself, not
+            # a turn the user took. A transcript leaves those out; files from hooks have them.
+            if not e.subagent and not is_agent_prompt(e):
                 m.turns += 1
+        elif e.type == "conversation_compacted":
+            m.compactions += 1
         elif e.type == "tool_call":
             name = e.tool or "unknown"
             m.tool_calls += 1
@@ -143,11 +150,24 @@ def compute_metrics(events: list[Event]) -> Metrics:
                     perm.abandoned += 1
             pending.resolve(e)
 
+        if e.usage:
+            # a reply's usage sits on its first line only, so every line that has it counts
+            has_usage = True
+            usage.input_tokens += e.usage.input_tokens
+            usage.output_tokens += e.usage.output_tokens
+            usage.cache_creation_input_tokens += e.usage.cache_creation_input_tokens
+            usage.cache_read_input_tokens += e.usage.cache_read_input_tokens
+
     # A prompt that never got an outcome line (crash, or the line was lost) was not answered.
     perm.abandoned += pending.count
 
     m.tool_mix = dict(mix)
     m.permission = perm
+    m.permissions_recorded = any(
+        e.type in ("permission_prompt", "permission_outcome") for e in events
+    )
+    m.status_recorded = any(e.type == "status" for e in events)
+    m.usage = usage if has_usage else None
     m.unpaired_calls = len(call_ids - result_ids) + sum(
         max(0, n - idless_results[tool]) for tool, n in idless_calls.items()
     )
