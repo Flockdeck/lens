@@ -49,3 +49,12 @@ assert.match(lib.expiredText({ ...cfg, raw_retention_days: 0 }), /retention is o
 assert.match(lib.expiredText(null), /after the retention period/);
 
 console.log("helpers ok");
+
+// Every explanation is a real sentence, and the vague terms are defined.
+for (const [label, text] of Object.entries(lib.GLOSSARY)) {
+  assert.ok(text.length > 30 && text.endsWith("."), `glossary entry for ${label}`);
+}
+assert.match(lib.GLOSSARY["Frustration"], /0 \(calm\) to 1/);
+assert.match(lib.GLOSSARY["Frustration"], /judgement, not a measurement/);
+assert.match(lib.GLOSSARY["Analysis model"], /not the model the agent used/);
+console.log("glossary ok");

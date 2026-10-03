@@ -1,16 +1,17 @@
 import { api, ApiError } from "../api.js";
 import { getConfig, loadConfig } from "../config.js";
 import { asList, expiredText, fmtBytes, fmtDate, fmtDuration, fmtNum, fmtPct } from "../lib.js";
-import { h, clear, append, badge, skeleton, errorBox, empty, stat, toast, confirmDialog, withBusy } from "../ui.js";
+import { h, clear, append, info, badge, skeleton, errorBox, empty, stat, toast, confirmDialog, withBusy } from "../ui.js";
 
 const EVENT_PAGE = 100;
 
-export function render(root, { parts }) {
+export function render(root, { parts, query }) {
   const id = parts[1];
   const ctrl = new AbortController();
   const host = h("div");
   let rawGone = false; // set when the API says the raw recording has expired (410)
   let current = null;
+  let activeTab = (query && query.tab) || "analysis"; // kept across a reload of the data
   root.append(host, skeleton(8));
 
   async function load() {
@@ -33,16 +34,61 @@ export function render(root, { parts }) {
     current = s;
     const enr = s.enrichment || null;
     const m = s.metrics || {};
+    const risks = s.risky_actions || [];
+    const tabs = [
+      { key: "analysis", label: "Analysis", llm: true, build: () => enr ? enrichmentSection(enr) : h("section", { class: "llm-panel" }, heading("Analysis", FROM_LLM), empty("Not enriched yet", "Use Re-enrich to run it now.")) },
+      { key: "metrics", label: "Metrics", build: () => h("div", null, metricsSection(m), warningsSection(s.warnings, s.completeness)) },
+      { key: "risks", label: `Risky actions (${risks.length})`, build: () => risksSection(s, enr) },
+      { key: "files", label: "Files", build: () => filesSection(s.files_touched) },
+      { key: "events", label: "Raw events", build: () => eventsSection(s) },
+    ];
+    if (!tabs.some((t) => t.key === activeTab)) activeTab = "analysis";
     // `append` skips null sections; the native Element.append would write the text "null".
-    append(clear(host), [
-      header(s, enr),
-      enr ? enrichmentSection(enr) : h("section", null, h("h2", null, "Enrichment"), empty("Not enriched yet", "Use Re-enrich to run it now.")),
-      metricsSection(m),
-      risksSection(s, enr),
-      stuckSection(enr),
-      filesSection(s.files_touched),
-      warningsSection(s.warnings, s.completeness),
-      eventsSection(s)]);
+    append(clear(host), [header(s, enr), tabset(tabs)]);
+  }
+
+  // An ARIA tab set. A panel is built the first time its tab opens and then kept (hidden), so the
+  // raw-events list and what was scrolled to survive switching tabs. The tab is in the URL.
+  function tabset(tabs) {
+    const list = h("div", { class: "tabs", role: "tablist", "aria-label": "Session details" });
+    const panels = new Map();
+    const buttons = new Map();
+
+    function show(key, focus) {
+      activeTab = key;
+      for (const t of tabs) {
+        const on = t.key === key;
+        buttons.get(t.key).setAttribute("aria-selected", on ? "true" : "false");
+        buttons.get(t.key).tabIndex = on ? 0 : -1;
+        if (on && !panels.has(t.key)) {
+          const p = h("div", { role: "tabpanel", id: `panel-${t.key}`, "aria-labelledby": `tab-${t.key}`, tabindex: "0", class: "tabpanel" }, t.build());
+          panels.set(t.key, p);
+          wrap.append(p);
+        }
+        if (panels.has(t.key)) panels.get(t.key).hidden = !on;
+      }
+      if (focus) buttons.get(key).focus();
+      history.replaceState(null, "", `#/sessions/${encodeURIComponent(id)}?tab=${key}`); // no hashchange
+    }
+
+    for (const t of tabs) {
+      const b = h("button", {
+        type: "button", role: "tab", id: `tab-${t.key}`, "aria-controls": `panel-${t.key}`, class: `tab${t.llm ? " tab-llm" : ""}`,
+        onclick: () => show(t.key, false),
+        onkeydown: (e) => {
+          const at = tabs.findIndex((x) => x.key === t.key);
+          const go = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+          if (go === undefined) return;
+          e.preventDefault();
+          show(tabs[(go + tabs.length) % tabs.length].key, true);
+        },
+      }, t.llm ? h("span", { class: "tab-mark", "aria-hidden": "true" }, "✦") : null, t.llm ? " " : null, t.label, t.llm ? h("span", { class: "visually-hidden" }, " (written by the session-lens LLM)") : null);
+      buttons.set(t.key, b);
+      list.append(b);
+    }
+    const wrap = h("div", { class: "tabpanels" });
+    show(activeTab, false);
+    return h("div", null, list, wrap);
   }
 
   function header(s, enr) {
@@ -79,26 +125,47 @@ export function render(root, { parts }) {
       h("p", { class: "crumb" }, h("a", { href: "#/sessions" }, "Sessions")),
       h("h1", null, s.project || "Session"),
       h("div", { class: "row" },
-        out ? badge(out) : null, cat ? h("span", { class: "tag" }, cat) : null,
-        s.completeness ? badge(s.completeness.replace("_", " "), `c-${s.completeness}`) : null),
+        out ? badge(out) : null, enr && out ? info("Outcome") : null,
+        cat ? h("span", { class: "tag" }, cat) : null, enr && cat ? info("Category") : null,
+        s.completeness ? badge(s.completeness.replace("_", " "), `c-${s.completeness}`) : null,
+        s.completeness ? info("Completeness") : null),
+      enr ? h("p", { class: "muted small" }, "Outcome and category are the session-lens LLM's. Completeness and the details below are from the recording.") : null,
       h("dl", { class: "meta" },
-        meta("Agent", s.agent), meta("Model", s.model), meta("Pane", s.pane),
+        meta("Agent", s.agent), meta("Agent model", s.model), meta("Pane", s.pane),
         meta("Started", fmtDate(s.started_at)), meta("Ended", fmtDate(s.ended_at)),
         meta("Session", s.recording_session, true)),
       h("div", { class: "row" }, reenrich, del),
       gone ? h("p", { id: "raw-expired", class: "muted small" }, expiredText(getConfig())) : null);
   }
 
-  const meta = (k, v, mono) => (v ? h("div", null, h("dt", null, k), h("dd", { class: mono ? "mono wrap" : "" }, v)) : null);
+  // Where a block comes from: the recording itself (parsed, rules) or the LLM session-lens ran.
+  const FROM_RECORDING = "From the recording";
+  const FROM_LLM = "session-lens LLM";
+  const origin = (kind) => h("span", { class: "origin-wrap" }, h("span", { class: `origin origin-${kind === FROM_LLM ? "llm" : "rec"}` }, kind), info(kind));
+  const heading = (title, kind) => h("div", { class: "section-head" }, h("h2", null, title), origin(kind));
+
+  const meta = (k, v, mono) => (v ? h("div", null, h("dt", null, k, info(k)), h("dd", { class: mono ? "mono wrap" : "" }, v)) : null);
 
   function enrichmentSection(e) {
-    return h("section", null, h("h2", null, "Enrichment"),
+    return h("section", { class: "llm-panel" }, heading("Analysis", FROM_LLM),
+      h("p", { class: "muted small" }, "Written by a model session-lens ran over this session's digest. None of it is in the recording."),
       h("p", { class: "lead" }, e.summary || ""),
       h("dl", { class: "stats" },
-        stat("Frustration", e.frustration == null ? "n/a" : e.frustration.toFixed(2), "0 calm, 1 high"),
-        stat("Tokens in", fmtNum(e.input_tokens)), stat("Tokens out", fmtNum(e.output_tokens)),
-        stat("Model", e.model || "n/a"), stat("Prompt version", e.prompt_version || "n/a")),
-      e.prompt_feedback ? h("div", { class: "note" }, h("h3", null, "Prompt feedback"), h("p", null, e.prompt_feedback)) : null);
+        stat("Frustration", e.frustration == null ? "n/a" : e.frustration.toFixed(2), "0 calm, 1 high. The LLM's estimate"),
+        stat("Prompt version", e.prompt_version || "n/a", "of session-lens's analysis prompt")),
+      h("h3", null, "What this analysis cost"),
+      h("dl", { class: "stats" },
+        stat("Analysis model", e.model || "n/a", "the model that wrote this"),
+        stat("Tokens in", fmtNum(e.input_tokens), "sent to it"), stat("Tokens out", fmtNum(e.output_tokens), "it wrote")),
+      stuckList(e),
+      e.prompt_feedback ? h("div", { class: "note" }, h("h3", null, "Prompt feedback", info("Prompt feedback")), h("p", null, e.prompt_feedback)) : null);
+  }
+
+  function stuckList(e) {
+    const pts = e.stuck_points || [];
+    if (!pts.length) return null;
+    return h("div", null, h("h3", null, `Stuck points (${pts.length})`, info("Stuck points")),
+      h("ol", { class: "plain-list" }, pts.map((p) => h("li", null, p.description, p.approx_seq != null ? h("span", { class: "muted" }, ` (around event ${p.approx_seq})`) : null))));
   }
 
   function bars(obj, fmt = (v) => v) {
@@ -113,7 +180,7 @@ export function render(root, { parts }) {
 
   function metricsSection(m) {
     const p = m.permission || {};
-    return h("section", null, h("h2", null, "Metrics"),
+    return h("section", null, heading("Metrics", FROM_RECORDING),
       h("dl", { class: "stats" },
         stat("Duration", fmtDuration(m.duration_seconds) || "n/a"), stat("Turns", fmtNum(m.turns ?? 0)),
         stat("Tool calls", fmtNum(m.tool_calls ?? 0)),
@@ -121,28 +188,22 @@ export function render(root, { parts }) {
         stat("Interrupted", fmtNum(m.tool_interrupted ?? 0)), stat("Unpaired calls", fmtNum(m.unpaired_calls ?? 0)),
         stat("Redacted lines", fmtNum(m.redacted_lines ?? 0)), stat("Clipped lines", fmtNum(m.clipped_lines ?? 0))),
       h("div", { class: "cols" },
-        h("div", null, h("h3", null, "Tool mix"), bars(m.tool_mix)),
-        h("div", null, h("h3", null, "Permissions"), bars(p), p.prompts ? null : h("p", { class: "muted small" }, "No permission prompts")),
-        h("div", null, h("h3", null, "Time in each status"), bars(m.status_seconds, fmtDuration))));
+        h("div", null, h("h3", null, "Tool mix", info("Tool mix")), bars(m.tool_mix)),
+        h("div", null, h("h3", null, "Permissions", info("Permissions")), bars(p), p.prompts ? null : h("p", { class: "muted small" }, "No permission prompts")),
+        h("div", null, h("h3", null, "Time in each status", info("Time in each status")), bars(m.status_seconds, fmtDuration))));
   }
 
   function risksSection(s, enr) {
     const risks = s.risky_actions || [];
     const notes = new Map(((enr && enr.risk_notes) || []).map((n) => [n.seq, n.explanation]));
-    return h("section", null, h("h2", null, `Risky actions (${risks.length})`),
+    return h("section", null, heading(`Risky actions (${risks.length})`, FROM_RECORDING),
+      h("p", { class: "muted small" }, "Detected by rules over the recording. The Note column is written by the session-lens LLM."),
       !risks.length ? h("p", { class: "muted" }, "No risky actions detected.")
         : h("div", { class: "table-wrap" }, h("table", { class: "table" },
-          h("thead", null, h("tr", null, ["Seq", "Severity", "Tool", "Action", "Rule", "Note"].map((t) => h("th", { scope: "col" }, t)))),
+          h("thead", null, h("tr", null, ["Seq", "Severity", "Tool", "Action", "Rule", "Note (LLM)"].map((t) => h("th", { scope: "col" }, t, info(t))))),
           h("tbody", null, risks.map((r) => h("tr", null,
             h("td", { class: "num" }, r.seq), h("td", null, badge(r.severity, `sev-${r.severity}`)), h("td", null, r.tool),
             h("td", { class: "mono wrap" }, r.summary), h("td", { class: "mono" }, r.rule), h("td", { class: "wrap" }, notes.get(r.seq) || "")))))));
-  }
-
-  function stuckSection(enr) {
-    const pts = (enr && enr.stuck_points) || [];
-    if (!pts.length) return null;
-    return h("section", null, h("h2", null, `Stuck points (${pts.length})`),
-      h("ol", { class: "plain-list" }, pts.map((p) => h("li", null, p.description, p.approx_seq != null ? h("span", { class: "muted" }, ` (around event ${p.approx_seq})`) : null))));
   }
 
   function filesSection(f) {
@@ -150,20 +211,20 @@ export function render(root, { parts }) {
     const group = (title, list) => h("details", { class: "files" },
       h("summary", null, `${title} (${(list || []).length})`),
       (list || []).length ? h("ul", { class: "mono plain-list" }, list.map((x) => h("li", { class: "wrap" }, x))) : h("p", { class: "muted" }, "None"));
-    return h("section", null, h("h2", null, "Files touched"), group("Edited", f.edited), group("Read", f.read), group("Commands", f.commands));
+    return h("section", null, heading("Files touched", FROM_RECORDING), group("Edited", f.edited), group("Read", f.read), group("Commands", f.commands));
   }
 
   function warningsSection(warnings, completeness) {
     const list = warnings || [];
     if (!list.length && (!completeness || completeness === "clean")) return null;
-    return h("section", null, h("h2", null, "Parse warnings"),
+    return h("section", null, heading("Parse warnings", FROM_RECORDING),
       completeness && completeness !== "clean" ? h("p", null, `Recording completeness: ${completeness.replace("_", " ")}.`) : null,
       list.length ? h("ul", { class: "plain-list" }, list.map((w) => h("li", null, w))) : null);
   }
 
   function eventsSection(s) {
     if (rawGone || s.raw_available === false) {
-      return h("section", null, h("h2", null, "Raw events"), h("p", { class: "muted" }, expiredText(getConfig())));
+      return h("section", null, heading("Raw events", FROM_RECORDING), h("p", { class: "muted" }, expiredText(getConfig())));
     }
     const list = h("div", { class: "events" });
     const more = h("button", { type: "button", class: "btn" }, "Load more events");
@@ -207,7 +268,7 @@ export function render(root, { parts }) {
       more.hidden = false;
       await next();
     });
-    return h("section", null, h("h2", null, "Raw events"), open, list, status, more);
+    return h("section", null, heading("Raw events", FROM_RECORDING), open, list, status, more);
   }
 
   function eventRow(ev) {

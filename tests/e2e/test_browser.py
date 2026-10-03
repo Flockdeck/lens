@@ -225,10 +225,14 @@ def test_the_whole_flow_in_a_browser(
 
     # --- inspect: metrics, risky actions, raw events -----------------------------------------
     page.click("tbody a")
-    page.wait_for_selector("text=Metrics")
-    assert page.get_by_role("heading", name="Risky actions (3)").count() == 1
-    assert "git_force_push" in page.inner_text("body")
+    page.wait_for_selector("[role=tab]")
+    assert page.locator(".llm-panel").is_visible()  # it opens on the analysis
+    page.click("[role=tab]:has-text('Metrics')")
+    page.get_by_role("button", name="What is Duration?").wait_for()
+    page.click("[role=tab]:has-text('Risky actions (3)')")
+    assert "git_force_push" in page.inner_text("[role=tabpanel]:not([hidden])")
     assert page.locator(".badge-stuck").count() >= 1
+    page.click("[role=tab]:has-text('Raw events')")
     page.click("text=Show raw events")
     page.wait_for_selector(".event")
     assert page.locator(".event").count() >= 5
@@ -396,3 +400,84 @@ def test_settings_change_the_footer_and_the_key_is_never_shown_again(
     # The one refusal provoked above is the browser's only complaint.
     assert [e for e in watched.errors if "422" not in e] == []
     assert len(watched.errors) <= 1
+
+
+def test_the_session_page_is_tabbed_and_says_what_the_llm_wrote(
+    browser: sync_api.Browser, live_app: LiveApp
+) -> None:
+    live_app.wait_idle(live_app.upload(("run.jsonl", recording("claude_full", "origin"))))
+    page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+    page.set_default_timeout(20000)
+    open_app(page, live_app)
+    page.goto(live_app.url + "/#/sessions")
+    page.click("table a")
+    page.wait_for_selector("[role=tab]")
+
+    names = [t.strip() for t in page.locator("[role=tab]").all_text_contents()]
+    assert [n.split(" (")[0].replace("✦", "").strip() for n in names] == [
+        "Analysis", "Metrics", "Risky actions", "Files", "Raw events",
+    ]  # fmt: skip
+    # Only the selected panel is on screen, and it starts on the LLM's analysis.
+    assert page.locator("[role=tabpanel]:not([hidden])").count() == 1
+    panel = page.locator(".llm-panel").first
+    assert (panel.locator(".origin-llm").text_content() or "").strip().endswith("session-lens LLM")
+    for label in ("Frustration", "Analysis model", "Tokens in", "Tokens out", "Prompt version"):
+        assert panel.get_by_role("button", name=f"What is {label}?").count() == 1, label
+    assert page.get_by_role("button", name="What is Duration?").count() == 0  # on the Metrics tab
+
+    # The recording's own facts are on their own tabs, labelled as such.
+    page.click("[role=tab]:has-text('Metrics')")
+    assert page.get_by_role("button", name="What is Duration?").is_visible()
+    assert page.locator(".origin-rec:visible").first.text_content() == "From the recording"
+    assert page.locator(".llm-panel:visible").count() == 0
+    assert "tab=metrics" in page.url
+
+    # Arrow keys move between tabs, and the choice survives a reload.
+    page.locator("[role=tab][aria-selected=true]").focus()
+    page.keyboard.press("ArrowRight")
+    assert page.locator("[role=tab][aria-selected=true]").inner_text().startswith("Risky actions")
+    page.keyboard.press("End")
+    assert page.locator("[role=tab][aria-selected=true]").inner_text() == "Raw events"
+    page.reload()
+    page.wait_for_selector("[role=tab][aria-selected=true]")
+    assert page.locator("[role=tab][aria-selected=true]").inner_text() == "Raw events"
+
+    # The events list is kept when you leave the tab and come back.
+    page.click("text=Show raw events")
+    page.wait_for_selector(".event")
+    shown = page.locator(".event").count()
+    page.click("[role=tab]:has-text('Files')")
+    page.click("[role=tab]:has-text('Raw events')")
+    assert page.locator(".event").count() == shown
+
+
+def test_vague_terms_explain_themselves_to_mouse_keyboard_and_touch(
+    browser: sync_api.Browser, live_app: LiveApp
+) -> None:
+    live_app.wait_idle(live_app.upload(("run.jsonl", recording("claude_full", "hints"))))
+    page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+    page.set_default_timeout(20000)
+    open_app(page, live_app)
+    page.goto(live_app.url + "/#/sessions")
+    page.click("table a")
+    page.wait_for_selector(".llm-panel")
+
+    button = page.get_by_role("button", name="What is Frustration?")
+    note = page.locator(".stat", has_text="Frustration").locator(".info-note")
+    assert note.is_hidden() and button.get_attribute("aria-expanded") == "false"
+    assert "0 (calm) to 1" in (button.get_attribute("title") or "")  # hover shows it too
+    button.click()
+    assert note.is_visible() and button.get_attribute("aria-expanded") == "true"
+    assert "judgement, not a measurement" in note.inner_text()
+    page.keyboard.press("Escape")
+    assert note.is_hidden()
+    button.focus()
+    page.keyboard.press("Enter")  # reachable and operable from the keyboard
+    assert note.is_visible()
+
+    # The token and model figures say whose they are, and the header explains its badges.
+    page.get_by_role("button", name="What is Analysis model?").click()
+    assert page.locator(".info-note:visible", has_text="not the model the agent used").count() == 1
+    assert page.get_by_role("button", name="What is Completeness?").count() == 1
+    page.get_by_role("button", name="What is session-lens LLM?").click()
+    assert page.locator(".info-note:visible", has_text="can change when you re-enrich").count() == 1

@@ -1,3 +1,5 @@
+import { GLOSSARY } from "./lib.js";
+
 // Tiny DOM helpers. Everything is inserted via textContent / createElement, never innerHTML,
 // because summaries and events come from recordings and must be treated as untrusted.
 
@@ -61,8 +63,25 @@ export function errorBox(message, onRetry) {
 }
 
 export function stat(label, value, hint) {
-  return h("div", { class: "stat" }, h("dt", null, label), h("dd", null, value),
+  return h("div", { class: "stat" }, h("dt", null, label, info(label)), h("dd", null, value),
     hint ? h("span", { class: "muted small" }, hint) : null);
+}
+
+let infoCount = 0;
+/** A "?" button that opens a short explanation of `label` (from the glossary, or `text`). It is a
+ * real button, so keyboard, touch and screen readers get it as well as the mouse; Escape or a
+ * second press closes it. Nothing is shown for a label with no entry. */
+export function info(label, text = GLOSSARY[label]) {
+  if (!text) return null;
+  const id = `info-${++infoCount}`;
+  const note = h("span", { class: "info-note", id, role: "note", hidden: true }, text);
+  const set = (open) => { note.hidden = !open; button.setAttribute("aria-expanded", String(open)); };
+  const button = h("button", {
+    type: "button", class: "info", "aria-label": `What is ${label}?`, "aria-expanded": "false", "aria-controls": id, title: text,
+    onclick: (e) => { e.preventDefault(); e.stopPropagation(); set(note.hidden); },
+    onkeydown: (e) => { if (e.key === "Escape" && !note.hidden) { e.stopPropagation(); set(false); } },
+  }, "?");
+  return h("span", { class: "info-wrap" }, button, note);
 }
 
 let toastHost;
