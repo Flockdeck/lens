@@ -290,3 +290,6 @@ figure figcaption { font-family: var(--display); font-weight: 650; margin-bottom
 .info-note { display: block; max-width: 34rem; margin: .4rem 0 .25rem; padding: .55rem .75rem; border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--raised); color: var(--text); font: 400 14px/1.45 var(--body); text-transform: none; letter-spacing: 0; white-space: normal; }
 .info-note[hidden] { display: none; }
 .origin-wrap { display: inline-flex; align-items: center; gap: .25rem; }
+
+.model-fit { margin-top: 1.25rem; }
+.model-fit .badge { font-size: 14px; }

@@ -20,6 +20,8 @@ GOOD: dict[str, Any] = {
     "frustration": 1.7,  # out of range, must be clamped
     "stuck_points": [{"description": "flaky test", "approx_seq": 12}],
     "prompt_feedback": None,
+    "model_fit": "overpowered",
+    "model_fit_reason": "Routine edits that a smaller model handles.",
     "risk_notes": [{"seq": 3, "explanation": "force push to a scratch branch"}],
 }
 RISKY = [{"seq": 3, "tool": "Bash", "summary": "git push -f", "severity": "high", "rule": "force"}]

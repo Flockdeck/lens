@@ -20,6 +20,8 @@ GOOD: dict[str, Any] = {
     "frustration": 1.7,  # out of range, must be clamped
     "stuck_points": [{"description": "flaky test", "approx_seq": 12}],
     "prompt_feedback": None,
+    "model_fit": "overpowered",
+    "model_fit_reason": "Routine edits that a smaller model handles.",
     "risk_notes": [{"seq": 3, "explanation": "force push to a scratch branch"}],
 }
 
@@ -68,6 +70,8 @@ async def test_happy_path(make_analysis: Callable[..., Any]) -> None:
     assert (result.input_tokens, result.output_tokens) == (100, 20)
     assert result.model == "claude-haiku-4-5"
     assert result.prompt_version == PROMPT_VERSION
+    assert result.model_fit == "overpowered"
+    assert result.model_fit_reason == "Routine edits that a smaller model handles."
 
     call = client.calls[0]
     assert call["model"] == "claude-haiku-4-5"
@@ -257,3 +261,39 @@ def test_the_remote_choice_is_announced_once_without_the_key(
     warned = [r for r in caplog.records if "sent to the Anthropic API" in r.getMessage()]
     assert len(warned) == 1 and warned[0].levelno == logging.WARNING
     assert "SECRET-KEY" not in caplog.text
+
+
+async def test_the_prompt_asks_for_a_model_judgement_and_sends_the_model_name(
+    make_analysis: Callable[..., Any],
+) -> None:
+    from session_lens.enrich.prompt import SYSTEM_PROMPT, output_schema
+
+    client = FakeClient(reply(json.dumps(GOOD)))
+    await AnthropicEnricher(client, "claude-haiku-4-5").enrich(make_analysis(model="claude-opus-9"))
+    assert "claude-opus-9" in client.calls[0]["messages"][0]["content"]  # the agent's model
+    assert "model_fit" in SYSTEM_PROMPT and "unclear" in SYSTEM_PROMPT
+    props = output_schema()["properties"]
+    assert set(props["model_fit"]["enum"]) == {
+        "well_matched",
+        "overpowered",
+        "underpowered",
+        "unclear",
+    }
+    assert "model_fit_reason" in output_schema()["required"]
+
+
+async def test_an_answer_without_a_model_judgement_is_malformed(
+    make_analysis: Callable[..., Any],
+) -> None:
+    bad = {k: v for k, v in GOOD.items() if not k.startswith("model_fit")}
+    client = FakeClient(reply(json.dumps(bad)), reply(json.dumps(GOOD)))
+    result = await AnthropicEnricher(client, "claude-haiku-4-5").enrich(make_analysis())
+    assert len(client.calls) == 2  # the first was refused and asked again
+    assert result.model_fit == "overpowered"
+
+
+async def test_an_invented_verdict_is_refused(make_analysis: Callable[..., Any]) -> None:
+    bad = {**GOOD, "model_fit": "perfect"}
+    client = FakeClient(*[reply(json.dumps(bad))] * 3)
+    with pytest.raises(EnrichmentError):
+        await AnthropicEnricher(client, "claude-haiku-4-5").enrich(make_analysis())

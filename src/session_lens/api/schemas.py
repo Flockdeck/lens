@@ -40,6 +40,8 @@ class EnrichmentOut(BaseModel):
     frustration: float
     stuck_points: list[dict[str, Any]]
     prompt_feedback: str | None
+    model_fit: str | None  # null: made before this was assessed
+    model_fit_reason: str | None
     risk_notes: list[dict[str, Any]]
     input_tokens: int
     output_tokens: int
@@ -55,6 +57,7 @@ class SessionSummary(BaseModel):
     agent: str | None
     model: str | None
     pane: str | None
+    pane_name: str | None
     started_at: datetime | None
     ended_at: datetime | None
     completeness: str

@@ -125,6 +125,8 @@ class AnthropicEnricher:
                 for s in parsed.stuck_points
             ],
             prompt_feedback=parsed.prompt_feedback,
+            model_fit=parsed.model_fit,
+            model_fit_reason=parsed.model_fit_reason,
             risk_notes=[
                 RiskNote(seq=r.seq, explanation=r.explanation)
                 for r in parsed.risk_notes

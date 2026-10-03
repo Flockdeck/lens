@@ -148,8 +148,9 @@ def test_stats_shapes(server: FakeServer) -> None:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
-def test_js_helpers_under_node() -> None:
-    script = Path(__file__).with_name("helpers.test.mjs")
+@pytest.mark.parametrize("name", ["helpers.test.mjs", "modules.test.mjs"])
+def test_js_helpers_under_node(name: str) -> None:
+    script = Path(__file__).with_name(name)
     run = subprocess.run(["node", str(script)], capture_output=True, text=True, check=False)  # noqa: S603, S607
     assert run.returncode == 0, run.stdout + run.stderr
 

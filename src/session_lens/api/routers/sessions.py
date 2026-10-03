@@ -53,6 +53,7 @@ def _summary_fields(row: SessionRow, raw_available: bool) -> dict[str, Any]:
         "agent": row.agent,
         "model": row.model,
         "pane": row.pane,
+        "pane_name": row.pane_name,
         "started_at": row.started_at,
         "ended_at": row.ended_at,
         "completeness": row.completeness,

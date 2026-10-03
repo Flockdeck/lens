@@ -154,6 +154,9 @@ class Metrics(BaseModel):
     status_seconds: dict[str, float] = Field(default_factory=dict)
     redacted_lines: int = 0
     clipped_lines: int = 0
+    # Every model the recording names, in order of first appearance. A session can change model
+    # part-way (e.g. /model); `Analysis.model` is only the first.
+    models: list[str] = Field(default_factory=list)
 
 
 class RiskyAction(BaseModel):
@@ -216,6 +219,7 @@ class Analysis(BaseModel):
     agent: str | None = None
     model: str | None = None
     pane: str | None = None
+    pane_name: str | None = None
     started_at: datetime | None = None
     ended_at: datetime | None = None
     completeness: Literal["clean", "truncated", "cut_off", "partial_agent"]

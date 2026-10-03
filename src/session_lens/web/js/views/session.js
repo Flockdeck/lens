@@ -131,7 +131,8 @@ export function render(root, { parts, query }) {
         s.completeness ? info("Completeness") : null),
       enr ? h("p", { class: "muted small" }, "Outcome and category are the session-lens LLM's. Completeness and the details below are from the recording.") : null,
       h("dl", { class: "meta" },
-        meta("Agent", s.agent), meta("Agent model", s.model), meta("Pane", s.pane),
+        meta("Agent", s.agent), meta(models(s).length > 1 ? "Agent models" : "Agent model", models(s).join(" \u2192 ")),
+        meta("Pane", s.pane_name || s.pane),
         meta("Started", fmtDate(s.started_at)), meta("Ended", fmtDate(s.ended_at)),
         meta("Session", s.recording_session, true)),
       h("div", { class: "row" }, reenrich, del),
@@ -143,6 +144,9 @@ export function render(root, { parts, query }) {
   const FROM_LLM = "session-lens LLM";
   const origin = (kind) => h("span", { class: "origin-wrap" }, h("span", { class: `origin origin-${kind === FROM_LLM ? "llm" : "rec"}` }, kind), info(kind));
   const heading = (title, kind) => h("div", { class: "section-head" }, h("h2", null, title), origin(kind));
+
+  // The metrics list every model used; sessions stored before that was added only have the first.
+  const models = (s) => ((s.metrics && s.metrics.models) || []).length ? s.metrics.models : (s.model ? [s.model] : []);
 
   const meta = (k, v, mono) => (v ? h("div", null, h("dt", null, k, info(k)), h("dd", { class: mono ? "mono wrap" : "" }, v)) : null);
 
@@ -157,8 +161,30 @@ export function render(root, { parts, query }) {
       h("dl", { class: "stats" },
         stat("Analysis model", e.model || "n/a", "the model that wrote this"),
         stat("Tokens in", fmtNum(e.input_tokens), "sent to it"), stat("Tokens out", fmtNum(e.output_tokens), "it wrote")),
+      modelFitBlock(e),
       stuckList(e),
       e.prompt_feedback ? h("div", { class: "note" }, h("h3", null, "Prompt feedback", info("Prompt feedback")), h("p", null, e.prompt_feedback)) : null);
+  }
+
+  const FIT = {
+    well_matched: ["Well matched", "\u2713", "done"],
+    overpowered: ["Probably more than needed", "\u25B2", "stuck"],
+    underpowered: ["Probably not enough", "\u25A0", "failed"],
+    unclear: ["Can't tell", "\u25CB", "queued"],
+  };
+
+  // Was the agent's model a sensible choice? The LLM's estimate; the model itself is from the recording.
+  function modelFitBlock(e) {
+    const used = current ? models(current).join(" \u2192 ") : "";
+    const body = e.model_fit == null
+      ? h("p", { class: "muted" }, "Not assessed. This analysis was made before session-lens judged model fit. Re-enrich to add it.")
+      : [h("p", null, h("span", { class: `badge badge-${FIT[e.model_fit][2]}` },
+          h("span", { class: "glyph", "aria-hidden": "true" }, FIT[e.model_fit][1]), FIT[e.model_fit][0])),
+        e.model_fit_reason ? h("p", null, e.model_fit_reason) : null];
+    return h("div", { class: "model-fit" },
+      h("h3", null, "Was the model a good fit?", info("Model fit")),
+      h("p", { class: "muted small" }, used ? `The agent used ${used}.` : "The recording does not say which model the agent used."),
+      body);
   }
 
   function stuckList(e) {

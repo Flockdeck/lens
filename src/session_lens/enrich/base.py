@@ -18,6 +18,9 @@ class RiskNote(BaseModel):
     explanation: str
 
 
+ModelFit = Literal["well_matched", "overpowered", "underpowered", "unclear"]
+
+
 class EnrichmentResult(BaseModel):
     summary: str
     category: str  # bugfix|feature|refactor|exploration|docs|tests|ops|other
@@ -25,6 +28,9 @@ class EnrichmentResult(BaseModel):
     frustration: float = Field(ge=0.0, le=1.0)
     stuck_points: list[StuckPoint] = Field(default_factory=list)
     prompt_feedback: str | None = None
+    # Was the agent's model a sensible choice for the task? None: not assessed.
+    model_fit: ModelFit | None = None
+    model_fit_reason: str | None = None
     risk_notes: list[RiskNote] = Field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0

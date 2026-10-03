@@ -105,3 +105,23 @@ def test_subagent_events_are_counted_and_paired(fixture: Fx) -> None:
     sub = [e for e in events if e.subagent == "agent-7"]
     assert [e.type for e in sub] == ["tool_call", "tool_result", "assistant_message"]
     assert analyze(events).metrics.tool_mix["Grep"] == 1
+
+
+def test_every_model_is_listed_in_order_not_just_the_first() -> None:
+    lines = [
+        make_line(1, "recording_started", model="opus", paneName="api"),
+        make_line(2, "user_prompt", text="hi", model="opus"),
+        make_line(3, "assistant_message", text="hello", model="sonnet"),
+        make_line(4, "assistant_message", text="again", model="opus"),
+        make_line(5, "recording_stopped"),
+    ]
+    a = analyze(parse(to_bytes(*lines)))
+    assert a.metrics.models == ["opus", "sonnet"]
+    assert a.model == "opus"  # the session row keeps the first, for filtering and compare
+    assert a.pane_name == "api"
+
+
+def test_a_recording_that_names_no_model_lists_none(fixture: Fx) -> None:
+    a = analyze(parse(fixture("start_stop_only.jsonl")))
+    assert a.metrics.models == [] and a.model is None
+    assert a.pane_name == "api"  # the readable name is kept, whatever else is missing

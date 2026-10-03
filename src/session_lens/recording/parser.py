@@ -169,6 +169,7 @@ def analyze(events: list[Event], parse_warnings: Iterable[str] | None = None) ->
         agent=next((e.agent for e in events if e.agent), None),
         model=next((e.model for e in events if e.model), None),
         pane=first.pane,
+        pane_name=next((e.pane_name for e in events if e.pane_name), None),
         started_at=first.time,
         ended_at=events[-1].time,
         completeness=completeness,

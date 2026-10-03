@@ -46,6 +46,7 @@ def _apply_analysis(
     row.agent = analysis.agent
     row.model = analysis.model
     row.pane = analysis.pane
+    row.pane_name = analysis.pane_name
     row.started_at = _naive(analysis.started_at)
     row.ended_at = _naive(analysis.ended_at)
     row.completeness = analysis.completeness
@@ -99,6 +100,8 @@ def _apply_result(row: Enrichment, result: EnrichmentResult) -> None:
     row.frustration = result.frustration
     row.stuck_points = [s.model_dump(mode="json") for s in result.stuck_points]
     row.prompt_feedback = result.prompt_feedback
+    row.model_fit = result.model_fit
+    row.model_fit_reason = result.model_fit_reason
     row.risk_notes = [n.model_dump(mode="json") for n in result.risk_notes]
     row.input_tokens = result.input_tokens
     row.output_tokens = result.output_tokens

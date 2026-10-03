@@ -99,6 +99,8 @@ class MockEnricher:
             frustration=frustration,
             stuck_points=stuck_points,
             prompt_feedback=feedback,
+            model_fit="unclear",
+            model_fit_reason="The mock enricher does not judge model fit.",
             risk_notes=risk_notes,
             input_tokens=0,
             output_tokens=0,

@@ -152,6 +152,7 @@ def compute_metrics(events: list[Event]) -> Metrics:
         max(0, n - idless_results[tool]) for tool, n in idless_calls.items()
     )
     m.status_seconds = _status_seconds(events)
+    m.models = list(dict.fromkeys(e.model for e in events if e.model))
     m.duration_seconds = round(max(0.0, (events[-1].time - events[0].time).total_seconds()), 3)
     return m
 

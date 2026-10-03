@@ -115,6 +115,7 @@ class Session(Base):
     agent: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     model: Mapped[str | None] = mapped_column(String(128), index=True, nullable=True)
     pane: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pane_name: Mapped[str | None] = mapped_column(String(128), nullable=True)  # e.g. "api"
     started_at: Mapped[datetime | None] = mapped_column(DateTime, index=True, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # clean | truncated | cut_off | partial_agent (agent reports few events)
@@ -150,6 +151,9 @@ class Enrichment(Base):
     frustration: Mapped[float] = mapped_column(Float)  # 0.0 - 1.0
     stuck_points: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     prompt_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # well_matched | overpowered | underpowered | unclear; NULL for analyses made before it existed
+    model_fit: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    model_fit_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     risk_notes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)

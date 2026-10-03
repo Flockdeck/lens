@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from session_lens.recording.models import Analysis
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 Category = Literal["bugfix", "feature", "refactor", "exploration", "docs", "tests", "ops", "other"]
 
@@ -34,6 +34,18 @@ repeated corrections, denied permissions and tool errors.
 risky action you were given if one is relevant, otherwise null).
 - prompt_feedback: one or two concrete suggestions for how the user could have prompted \
 better, or null if the prompts were fine.
+- model_fit: whether the agent's model (the "model" in <facts>) suited the task. \
+metrics.models in <facts> lists every model the session used, in order; if it changed, weigh each. \
+One of "well_matched", "overpowered" (a smaller, faster or cheaper model would very likely \
+have done as well: routine edits, lookups, simple questions), "underpowered" (the task needed \
+more capability: hard debugging or design, long multi-step work, and the session shows the model \
+struggling, \
+repeating itself or making errors it did not recover from), or "unclear" (use this when "model" is \
+missing or not a name you recognise, or the session gives too little to judge). Judge from the \
+task's difficulty and how the session went, not from the model's name alone; names such as \
+"opusplan" or "sonnet[1m]" are aliases or settings, so do not assume more than they say.
+- model_fit_reason: one sentence giving the evidence for model_fit, or null if "unclear" for lack \
+of a model name.
 - risk_notes: for each risky action you are given that deserves comment, its seq and a short \
 explanation of why it was or was not a concern in context. Use only seq values you were given.
 
@@ -61,6 +73,8 @@ class LLMEnrichment(BaseModel):
     frustration: float
     stuck_points: list[StuckPointOut]
     prompt_feedback: str | None
+    model_fit: Literal["well_matched", "overpowered", "underpowered", "unclear"]
+    model_fit_reason: str | None
     risk_notes: list[RiskNoteOut]
 
     @field_validator("frustration")

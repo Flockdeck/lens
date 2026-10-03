@@ -57,7 +57,8 @@ fetched file and slices by `seq`.
 `Metrics` (stored in `sessions.metrics`): `duration_seconds`, `turns`, `tool_calls`,
 `tool_mix: dict[str,int]`, `tool_errors`, `tool_interrupted`, `unpaired_calls`,
 `permission: {prompts, allowed, denied, auto_approved, abandoned}`,
-`status_seconds: dict[str,float]`, `redacted_lines`, `clipped_lines`.
+`status_seconds: dict[str,float]`, `redacted_lines`, `clipped_lines`, `models: list[str]` (every
+model named, in order; absent in sessions stored before it was added).
 
 ## enrich
 

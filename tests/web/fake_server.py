@@ -122,6 +122,8 @@ def make_sessions(n: int = 60) -> dict[str, dict[str, Any]]:
                 if outcome == "stuck"
                 else [],
                 "prompt_feedback": "Name the failing test up front." if i % 2 else None,
+                "model_fit": ["well_matched", "overpowered", "underpowered", None][i % 4],
+                "model_fit_reason": "Mostly routine edits." if i % 4 == 1 else None,
                 "risk_notes": [{"seq": 40, "explanation": "Force push to a shared branch."}]
                 if i % 4 == 0
                 else [],
