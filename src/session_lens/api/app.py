@@ -79,7 +79,7 @@ def create_app(settings: Settings | None = None, *, run_worker: bool = False) ->
     enrichment worker and retention cleanup inside the app's own event loop, so one process is
     the whole service. Tests leave it off and drive the worker themselves."""
     settings = settings or get_settings()
-    setup_logging(settings.log_level)
+    setup_logging(settings.log_level, settings.log_file, settings.data_dir)
 
     engine = make_engine(settings)
 

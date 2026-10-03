@@ -1,23 +1,16 @@
 """Non-secret runtime facts for the UI."""
 
-from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
+from session_lens._version import app_version
 from session_lens.api.deps import get_app_settings
 from session_lens.api.schemas import RuntimeConfig
 from session_lens.config import Settings
 from session_lens.runtime_settings import effective_settings
 
 router = APIRouter(tags=["config"])
-
-
-def _version() -> str:
-    try:
-        return version("session-lens")
-    except PackageNotFoundError:
-        return "unknown"
 
 
 @router.get(
@@ -37,5 +30,5 @@ async def runtime_config(
         enricher=settings.enricher,
         raw_retention_days=settings.raw_retention_days,
         cleanup_interval_seconds=getattr(settings, "cleanup_interval_seconds", None),
-        version=_version(),
+        version=app_version(),
     )

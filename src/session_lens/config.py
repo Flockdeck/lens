@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     store_prefix: str = "recordings/"
 
     log_level: str = "INFO"
+    # "-": standard output. Blank: standard output in a terminal, else a file in data_dir.
+    log_file: str = ""
 
     # Where `session-lens serve` listens. Loopback only: there is no API key.
     host: str = "127.0.0.1"

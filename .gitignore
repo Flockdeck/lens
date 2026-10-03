@@ -8,3 +8,6 @@ __pycache__/
 .env
 data/
 .e2e-data/
+dist/
+build/
+*.spec.bak

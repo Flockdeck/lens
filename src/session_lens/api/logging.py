@@ -6,6 +6,8 @@ import os
 import sys
 import traceback
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 # LogRecord attributes that are not caller-supplied context.
@@ -37,8 +39,39 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def setup_logging(level: str = "INFO") -> None:
-    handler = logging.StreamHandler(sys.stdout)
+LOG_FILE_BYTES = 5 * 1024 * 1024
+LOG_FILE_COUNT = 3
+
+
+def log_destination(log_file: str, data_dir: str) -> Path | None:
+    """Where logs go: None for standard output, else a file.
+
+    * LOG_FILE=-            standard output.
+    * LOG_FILE=<path>       that file.
+    * unset, in a terminal  standard output, so a person running it sees what happens.
+    * unset, not a terminal a file in the data directory. A program that starts session-lens and
+      reads its output through a pipe it never empties would otherwise freeze it the moment the
+      pipe fills, since every request is logged.
+    """
+    if log_file == "-":
+        return None
+    if log_file:
+        return Path(log_file).expanduser()
+    if sys.stdout is not None and sys.stdout.isatty():
+        return None
+    return Path(data_dir).expanduser() / "session-lens.log"
+
+
+def setup_logging(level: str = "INFO", log_file: str = "-", data_dir: str = ".") -> None:
+    destination = log_destination(log_file, data_dir)
+    handler: logging.Handler
+    if destination is None:
+        handler = logging.StreamHandler(sys.stdout)
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            destination, maxBytes=LOG_FILE_BYTES, backupCount=LOG_FILE_COUNT, encoding="utf-8"
+        )
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     root.handlers[:] = [handler]

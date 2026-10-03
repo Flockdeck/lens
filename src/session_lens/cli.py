@@ -4,50 +4,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import uuid
 import webbrowser
 from collections.abc import Sequence
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from session_lens.api.logging import quiet_database_loggers
-from session_lens.config import get_settings
+from session_lens._version import app_version
+from session_lens.api.logging import setup_logging
+from session_lens.config import Settings, get_settings
+from session_lens.parent_watch import watch_parent
 from session_lens.storage.base import build_store
 
-_STD_ATTRS = set(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {"message", "asctime"}
 
-
-class JsonFormatter(logging.Formatter):
-    """One JSON object per line. Extras are ids and counts only, by convention."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        out: dict[str, object] = {
-            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
-            "level": record.levelname,
-            "logger": record.name,
-            "msg": record.getMessage(),
-        }
-        out.update({k: v for k, v in vars(record).items() if k not in _STD_ATTRS})
-        if record.exc_info:
-            out["exc_type"] = record.exc_info[0].__name__ if record.exc_info[0] else None
-        return json.dumps(out, default=str)
-
-
-def configure_logging(level: str) -> None:
-    handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
-    logging.basicConfig(level=level.upper(), handlers=[handler], force=True)
+def configure_logging(settings: Settings) -> None:
+    setup_logging(settings.log_level, settings.log_file, settings.data_dir)
     logging.getLogger("alembic").setLevel(logging.WARNING)
-    quiet_database_loggers()
-
-
-def app_version() -> str:
-    try:
-        return version("session-lens")
-    except PackageNotFoundError:
-        return "unknown"
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -68,7 +40,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         import threading
 
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    uvicorn.run(create_app(settings, run_worker=True), host=host, port=port, log_config=None)
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(settings, run_worker=True), host=host, port=port, log_config=None)
+    )
+    # If whatever launched this program is killed, stop too (see parent_watch).
+    watch_parent(lambda: setattr(server, "should_exit", True))
+    server.run()
     return 0
 
 
@@ -162,7 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if not hasattr(args, "func"):  # no command: serve
         args = build_parser().parse_args(["serve", *(argv or [])])
-    configure_logging(get_settings().log_level)
+    configure_logging(get_settings())
     return int(args.func(args))
 
 

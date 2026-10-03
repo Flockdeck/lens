@@ -18,6 +18,7 @@ from session_lens.db.migrate import upgrade
 # ENRICHER and ANTHROPIC_API_KEY live), and a test that built its settings from it would call the
 # Anthropic API. Environment variables win over `.env`, so pin the enrichment ones here.
 for _name, _value in {
+    "LOG_FILE": "-",
     "ENRICHER": "mock",
     "ANTHROPIC_API_KEY": "",
     "ANTHROPIC_MODEL": "claude-haiku-4-5",

@@ -110,7 +110,10 @@ class DynamicEnricher:
                     self._fingerprint = fingerprint
                     self._inner, self._error = None, None
                     try:
-                        self._inner = build_enricher(settings)
+                        # Building a client loads the TLS certificates, which takes seconds on
+                        # some machines (and longer in a freshly unpacked binary); on the event
+                        # loop that would freeze the web UI.
+                        self._inner = await asyncio.to_thread(build_enricher, settings)
                     except ValueError as exc:  # a missing key, a URL that is not local
                         self._error = str(exc)
                         log.warning("enricher not usable", extra={"enricher": settings.enricher})
