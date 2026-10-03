@@ -1,5 +1,12 @@
 # Component contracts
 
+> **Update.** This file was written when the service was going to be hosted: MySQL, a separate API
+> and worker, an S3 store. It is now one local process on SQLite with files on disk. The module
+> boundaries and the HTTP contract below still hold; where it names MySQL, `SKIP LOCKED`, the
+> worker as its own process or S3, read: SQLite (`db/session.py`), one write transaction at a time,
+> the same code running inside the server, and the filesystem store.
+
+
 session-lens is built as independent components. Each owns a directory and codes against the
 interfaces below, so they can be written in parallel and joined later. The product is described
 in `README.md`, the decisions in `docs/plan.md`, the input format in Flockdeck's

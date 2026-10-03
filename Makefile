@@ -1,4 +1,4 @@
-.PHONY: help install up down logs migrate api worker lint format typecheck test e2e e2e-browser check build clean-data smoke
+.PHONY: help install run lint format typecheck test e2e e2e-browser check binary smoke clean
 
 help:
 	@grep -E '^[a-z-]+:' Makefile | cut -d: -f1 | sort
@@ -6,24 +6,9 @@ help:
 install:
 	uv sync
 
-up:
-	docker compose up --build -d
-
-down:
-	docker compose down
-
-logs:
-	docker compose logs -f api worker
-
-# Non-docker runs; need `docker compose up -d --wait mysql` and the settings in .env.
-migrate:
-	uv run session-lens migrate
-
-api:
-	uv run session-lens api
-
-worker:
-	uv run session-lens worker
+# The whole service in one process: http://127.0.0.1:8000
+run:
+	uv run session-lens serve --open
 
 lint:
 	uv run ruff check .
@@ -39,53 +24,22 @@ typecheck:
 test:
 	uv run pytest
 
-# The whole flow through the real stack (needs `docker compose up -d --wait mysql`). `e2e-browser` drives a
-# real browser too: Edge if installed, else Playwright's Chromium (`uv run playwright install chromium`).
+# The end-to-end tests: real app, worker, database and storage.
 e2e:
 	uv run pytest tests/e2e -m "not browser"
 
+# The same flows in a real browser (needs Edge, or `uv run playwright install chromium`).
 e2e-browser:
 	uv run pytest tests/e2e -m browser
 
 check: lint typecheck test
 
-build:
-	docker build -t session-lens:dev .
+# Build the single program for this machine, then use it like a person would.
+binary:
+	uv run pyinstaller packaging/session-lens.spec --noconfirm --distpath dist --workpath build
 
-# Deletes all stored raw recordings (the shared data volume), after asking.
-clean-data:
-	@printf "Stop the stack and delete ALL raw recordings in volume session-lens-data? [y/N] "; \
-	read ans; if [ "$$ans" = "y" ]; then \
-	  docker compose down && docker volume rm session-lens-data; \
-	else echo "aborted"; fi
+smoke: binary
+	uv run python packaging/smoke.py dist/session-lens
 
-define SMOKE
-set -eu
-url=http://127.0.0.1:8000
-json() { uv run python -c "import sys, json; d = json.load(sys.stdin); print($$1)"; }
-up=0
-for i in $$(seq 60); do
-  if curl -fs "$$url/healthz" >/dev/null; then up=1; break; fi
-  sleep 1
-done
-[ "$$up" = 1 ] || { echo "api did not come up" >&2; exit 1; }
-id=$$(curl -fsS -F files=@tests/fixtures/claude_full.jsonl "$$url/batches" | json 'd["id"]')
-echo "batch $$id"
-state=""
-for i in $$(seq 120); do
-  body=$$(curl -fsS "$$url/batches/$$id")
-  state=$$(echo "$$body" | json 'd["status"]')
-  [ "$$state" = done ] && break
-  sleep 1
-done
-[ "$$state" = done ] || { echo "batch not done (status: $$state)" >&2; exit 1; }
-failed=$$(echo "$$body" | json 'd["counts"]["failed"]')
-[ "$$failed" = 0 ] || { echo "$$failed item(s) failed" >&2; exit 1; }
-total=$$(curl -fsS "$$url/sessions?limit=1" | json 'd["total"]')
-echo "ok: batch done, $$total session(s)"
-endef
-export SMOKE
-
-# Needs `make up` running. Uploads a fixture, waits for the batch, prints the session count.
-smoke:
-	@bash -c "$$SMOKE"
+clean:
+	rm -rf dist build

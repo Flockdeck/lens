@@ -1,0 +1,86 @@
+name: release
+
+# Push a tag like v0.2.0 to build the program on every platform and draft a release.
+# Run by hand (workflow_dispatch) to build and smoke-test without releasing anything.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners: PyInstaller cannot cross-compile.
+          - {os: ubuntu-latest,    goos: linux,   goarch: amd64, ext: tar.gz, exe: session-lens}
+          - {os: ubuntu-24.04-arm, goos: linux,   goarch: arm64, ext: tar.gz, exe: session-lens}
+          - {os: macos-15-intel,   goos: darwin,  goarch: amd64, ext: tar.gz, exe: session-lens}
+          - {os: macos-latest,     goos: darwin,  goarch: arm64, ext: tar.gz, exe: session-lens}
+          - {os: windows-latest,   goos: windows, goarch: amd64, ext: zip,    exe: session-lens.exe}
+          - {os: windows-11-arm,   goos: windows, goarch: arm64, ext: zip,    exe: session-lens.exe}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: Put the tag in the program
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then VERSION="0.0.0-dev"; fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          sed -i.bak "s/^__version__ = .*/__version__ = '${VERSION}'/" src/session_lens/_version.py
+          rm src/session_lens/_version.py.bak
+          python -c "import ast,sys; ast.parse(open('src/session_lens/_version.py').read())"
+          grep __version__ src/session_lens/_version.py | head -1
+      - run: uv run pyinstaller packaging/session-lens.spec --noconfirm --distpath dist --workpath build
+      - name: Use the program we just built
+        run: uv run python packaging/smoke.py "dist/${{ matrix.exe }}"
+      - name: Archive
+        run: |
+          NAME="session-lens_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "out/${NAME}"
+          cp "dist/${{ matrix.exe }}" "out/${NAME}/"
+          cp README.md "out/${NAME}/"
+          cd out
+          if [ "${{ matrix.ext }}" = "zip" ]; then
+            7z a "${NAME}.zip" "${NAME}" > /dev/null
+          else
+            chmod +x "${NAME}/${{ matrix.exe }}"
+            tar -czf "${NAME}.tar.gz" "${NAME}"
+          fi
+          echo "ARCHIVE=${NAME}.${{ matrix.ext }}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: out/${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: cd artifacts && sha256sum session-lens_* > checksums.txt && cat checksums.txt
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" artifacts/* \
+            --repo "${GITHUB_REPOSITORY}" --draft --title "${GITHUB_REF_NAME}" \
+            --notes "Unsigned builds. Check them against checksums.txt."

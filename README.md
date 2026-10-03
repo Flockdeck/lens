@@ -35,9 +35,10 @@ way for them to look at it.
 
 **session-lens** analyses recordings of coding-agent sessions. It ingests batches of
 [Flockdeck](https://github.com/Flockdeck/flockdeck) pane recordings, computes metrics from each
-one, enriches it (summary, category, outcome, where the agent got stuck), stores the results in
-MySQL and lets a client submit work and retrieve results through a FastAPI service and a small
-web UI that uses only that API.
+one, enriches it (summary, category, outcome, frustration, whether the model suited the task,
+where the agent got stuck), stores the results in a local SQLite database and lets a client submit
+work and retrieve results through a FastAPI service and a small web UI that uses only that API.
+It ships as one self-contained program per platform.
 
 It is the brief's shape (a batch of items, fetched and processed with failures expected, an
 LLM behind an interface with a mock, a database with an ORM, submit and retrieve) with a
@@ -51,12 +52,11 @@ A recording contains prompts, file contents and command output. Flockdeck's own 
 this stays on the machine, and session-lens keeps to it:
 
 - **By default nothing is uploaded.** The default enricher is a deterministic mock, and the optional
-  local one talks to an [Ollama](https://ollama.com) server and refuses any URL that is not loopback
-  (or `host.docker.internal` from a container); its HTTP client ignores proxy variables and does not
-  follow redirects. With either, the service makes no outbound network calls.
+  local one talks to an [Ollama](https://ollama.com) server and refuses any URL that is not loopback;
+  its HTTP client ignores proxy variables and does not follow redirects. With either, the service makes no outbound network calls.
 - **Anthropic is an explicit opt-in.** Choose it in the UI's Settings page, or set `ENRICHER=anthropic`
-  and `ANTHROPIC_API_KEY` in the git-ignored `.env` (the model is `ANTHROPIC_MODEL`, default
-  `claude-haiku-4-5`). A key entered in Settings is stored in the local database (plain text, on this
+  and `ANTHROPIC_API_KEY` (in the environment or a `.env` file next to where you run it; the model
+  is `ANTHROPIC_MODEL`, default `claude-haiku-4-5`). A key entered in Settings is stored in the local database (plain text, on this
   machine, like the `.env` it stands in for), is write-only (the API says only whether one is set and
   where it came from), and overrides the environment; the worker picks changes up within seconds, with
   no restart. Once chosen, each session's
@@ -64,8 +64,8 @@ this stays on the machine, and session-lens keeps to it:
   never the raw recording) is sent to `api.anthropic.com`. It is announced in the log at startup, the
   UI's status bar changes to "Sends digests to Anthropic", and the key is never logged or returned by
   the API. Without the key the service refuses to start with that enricher.
-- **Loopback, and no key.** The API binds `127.0.0.1` and warns if asked to bind anywhere else, and
-  compose publishes ports on `127.0.0.1` only. There is no API key to manage because nothing outside
+- **Loopback, and no key.** The server binds `127.0.0.1` and warns if asked to bind anywhere else.
+  There is no API key to manage because nothing outside
   this machine can reach it. What a key would also have stopped is a web page you have open talking to
   `127.0.0.1` for you (a form post, or DNS rebinding), so every request is checked: the `Host` must be
   one of this machine's names (`ALLOWED_HOSTS`, default `127.0.0.1`, `localhost`, `::1`), and a write
@@ -83,15 +83,30 @@ this stays on the machine, and session-lens keeps to it:
 
 ### Run it
 
+Download the archive for your platform from the
+[releases](https://github.com/jmwri/yantra-test/releases) (`session-lens_<version>_<os>_<arch>`,
+for Windows, macOS and Linux on amd64 and arm64), unpack it and run the program:
+
 ```sh
-make up                        # mysql, migrations, api on http://127.0.0.1:8000, worker
-make smoke                     # uploads a fixture, waits for it, prints the session count
+./session-lens serve --open        # session-lens.exe on Windows
 ```
 
-Open http://127.0.0.1:8000. There is nothing to sign in to. To enrich with a local model:
-`ollama pull llama3.1:8b`, then set `ENRICHER=ollama` (compose has the commented lines for
-reaching Ollama on the host). Without Docker: `docker compose up -d --wait mysql`, then
-`make migrate api` and `make worker` in two terminals. `make check` runs lint, types and tests.
+It prints its address (http://127.0.0.1:8000), opens it with `--open`, and stops on Ctrl+C. There is
+nothing to install, no database server and nothing to sign in to. One process is the whole service:
+the web UI, the API, the enrichment worker and the retention timer.
+
+Everything it keeps is in one folder: `%LOCALAPPDATA%\session-lens` on Windows,
+`~/Library/Application Support/session-lens` on macOS, `~/.local/share/session-lens` on Linux (set
+`DATA_DIR` to move it). That is the SQLite database, the raw recordings under `recordings/`, and the
+log file. When its output is not a terminal (another program started it) it logs to
+`session-lens.log` there, rotated, instead of standard output, so a pipe nobody reads cannot stall
+it. If something kills the program from outside, the server behind it exits too.
+
+Settings come from the Settings page, or from environment variables / a `.env` file
+(`session-lens serve --help`, and `src/session_lens/config.py` for the list). To enrich with a local
+model: `ollama pull llama3.1:8b`, then choose Ollama in Settings. From source: `uv sync`, then
+`uv run session-lens serve --open`; `make check` runs lint, types and tests; `make binary` builds the
+program for this machine and `make smoke` runs it end to end.
 
 ### Input
 
@@ -159,57 +174,64 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
 
 - **Parser** (`recording/`): a tolerant reader for format v1, then `analyze` for the metrics,
   risk rules and the LLM digest. Pure functions over bytes, so they are easy to test.
-- **Storage** (`storage/`): a small `RecordingStore` interface. The default is a local
-  filesystem store (atomic writes, private permissions, keys that cannot escape the data
-  directory); an S3-compatible store is an optional implementation. The object is written
-  before its database row, so a row never points at a missing file.
-- **Worker** (`worker/`): claims batch items with `SELECT ... FOR UPDATE SKIP LOCKED`, runs a
-  bounded number at once, retries with exponential backoff and jitter, and tells retryable
-  failures (timeouts, a model still loading) from permanent ones (unsupported version, empty
-  file, expired raw). A claim token fences a worker that lost its claim; parsing runs off the
-  event loop; no database connection is held while the model runs; shutdown drains for a
-  bounded time and refunds the attempt of anything it had to cancel. One bad session never
-  fails a batch.
+- **Storage** (`storage/`): a small `RecordingStore` interface with a local filesystem
+  implementation (atomic writes, private permissions, keys that cannot escape the data
+  directory). The object is written before its database row, so a row never points at a missing
+  file.
+- **Worker** (`worker/`): runs inside the server process. It claims batch items, runs a bounded
+  number at once, retries with exponential backoff and jitter, and tells retryable failures
+  (timeouts, a model still loading) from permanent ones (unsupported version, empty file, expired
+  raw). A claim token fences a claim that was taken over; parsing runs off the event loop; no
+  database connection is held while the model runs; shutdown drains for a bounded time and
+  refunds the attempt of anything it had to cancel. One bad session never fails a batch.
 - **Idempotency.** A session is keyed on its recording session id. Resubmitting identical
   content is free; a longer version of the same recording replaces the session and is
   re-enriched, so the list never shows duplicates.
-- **Retention.** The worker runs cleanup in the background (and `session-lens cleanup` runs it
-  by hand): raw files past `RAW_RETENTION_DAYS` are deleted and their rows marked expired (the
-  UI then disables the event view and re-enrich), and finished batch records older than 90 days
-  are pruned. A MySQL advisory lock keeps two cleanups from colliding. Deleting a session
-  removes its raw files too.
-- **Database.** SQLAlchemy 2.0 (async, `asyncmy`) and Alembic on MySQL 8 everywhere: dev, CI
-  and compose share one dialect and one set of migrations. There is no SQLite path.
-- **Enricher** (`enrich/`): the interface, a deterministic mock (the default, no setup), and the
-  local Ollama implementation with schema-constrained output, a bounded retry on malformed JSON
-  and an explicit truncation limit.
+- **Retention.** The server runs cleanup in the background (and `session-lens cleanup` runs it by
+  hand): raw files past `RAW_RETENTION_DAYS` are deleted and their rows marked expired (the UI then
+  disables the event view and re-enrich), and finished batch records older than 90 days are
+  pruned. Deleting a session removes its raw files too.
+- **Database.** SQLAlchemy 2.0 (async, `aiosqlite`) and one Alembic migration, run on every start,
+  on a SQLite file in WAL mode with foreign keys on. Writers begin with `BEGIN IMMEDIATE` so they
+  queue behind each other instead of failing with "database is locked"; GET requests read through
+  deferred sessions that never take the write lock, so polling the UI cannot hold up the worker.
+- **Enricher** (`enrich/`): the interface, a deterministic mock (the default, no setup), the
+  local Ollama implementation and the opt-in Anthropic one, all with schema-constrained output, a
+  bounded retry on malformed JSON and an explicit truncation limit. The one the server uses is
+  looked up from the stored settings before each item, so changing it needs no restart.
+- **Packaging** (`packaging/`): a PyInstaller spec that builds one executable containing the UI,
+  the migration and the worker, and `smoke.py`, which starts a built program on a fresh data
+  directory and uses it like a person would.
 
 ### Testing and CI
 
-- Real MySQL for every test that touches the database, built from the Alembic migrations (so
-  the migrations run on every test run), one throwaway database per run.
+- A real SQLite database for every test that touches one, built from the migration (so the
+  migration runs on every test run), one throwaway file per run. The whole suite takes under a
+  minute.
 - Parser tests for each tolerance rule, risk-rule false positives and negatives, and a
   performance check on a pathological 90,000-line file.
-- Worker tests for claims, fencing, retries and backoff, the claim-versus-cancel lock order,
-  retention and the storage implementations.
+- Worker tests for claims, fencing, retries and backoff, retention and the storage
+  implementation; database tests for what SQLite needs (25 concurrent read-then-write transactions
+  lose no update, a reader and a writer never wait for each other, cascades fire).
 - API tests against the real worker and storage modules, including the privacy headers and log
   contents; enrich tests with a scripted fake Ollama server, including that non-local URLs are
   refused; web tests that fail on any external URL in the UI.
-- **End to end** (`tests/e2e`, `make e2e`): the real app, worker, MySQL, filesystem store and parser, with
-  nothing faked between an upload and a result. They submit a mixed batch and read every view of it
-  (sessions, metrics, risky actions, paged events, stats, config, privacy headers), resubmit the same and a
-  longer recording, age a recording past retention and check the file is really gone and the endpoints
-  answer `410`, delete, cancel and retry, per-file upload checks, and that every endpoint refuses a
-  foreign `Host` and every write refuses a foreign `Origin`. `make e2e-browser` repeats the flow in a
-  real browser (Edge, else Chromium): opening the app with nothing to sign in to, a multi-file upload
-  with the empty file flagged, the batch page, filtering, the session page, raw events, re-enrich,
-  delete, insights, phone width without sideways scrolling, keyboard focus, no external request and no
-  console error. It also tries the two attacks a key would have stopped, from a real browser: another
-  page's form post, which is refused, and a host name rebound to this machine, which gets `421`. I checked they can fail by breaking file deletion and the
-  done glyph on purpose.
-- GitHub Actions runs ruff, `mypy --strict` and pytest (end-to-end tests and a Chromium browser
-  included) against a MySQL service container, and builds the image on pull requests without
-  pushing it. There is no deployment: this stays on your machine.
+- **End to end** (`tests/e2e`, `make e2e`): the real app, worker, database, filesystem store and
+  parser, with nothing faked between an upload and a result. They submit a mixed batch and read
+  every view of it, resubmit the same and a longer recording, age a recording past retention and
+  check the file is really gone and the endpoints answer `410`, delete, cancel and retry, and
+  that every endpoint refuses a foreign `Host` and every write refuses a foreign `Origin`.
+  `test_serve.py` starts the service from an empty folder (with a space in its name), uses it,
+  stops it and starts it again. `make e2e-browser` repeats the flow in a real browser (Edge,
+  else Chromium), including the session page's tabs and explanations, phone width, keyboard
+  focus, no external request and no console error.
+- **The built program** (`packaging/smoke.py`): for each platform's executable, the same flow
+  over HTTP, plus: the Anthropic SDK is inside it (pointed at a dead local port, so nothing is
+  sent), nothing is lost across a restart, and killing the launcher takes the server with it.
+- GitHub Actions runs ruff, `mypy --strict` and pytest on Linux and Windows, and builds and
+  smoke-tests the program. A release workflow builds it on native runners for all six targets
+  (Windows, macOS and Linux, amd64 and arm64) and drafts a GitHub release with checksums.
+  There is no deployment: this stays on your machine.
 
 ### Decisions I would talk about
 
@@ -219,6 +241,12 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
   prompting (tag break-out, invented event numbers).
 - Moving from a database blob to per-line rows to object storage and finally to a local
   filesystem store as the privacy requirement became clear, and what each change cost.
+- Starting on MySQL with a separate API and worker because it was going to be served, then
+  dropping both for SQLite and one process when it became a local tool: what that deleted (row
+  locks, a named lock, two containers, a database server to install) and what it needed instead
+  (an up-front write lock so writers queue, deferred reads, one in-process lock).
+- Packaging problems that only show up when the thing is a program other programs start: a
+  launcher process that can be killed without its child, and output nobody reads.
 - Why retention is enforced by the app rather than by a storage lifecycle rule once nothing is
   hosted.
 - Out of scope: replaying sessions, live streaming, multiple users, recovering redacted text.
