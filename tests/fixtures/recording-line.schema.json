@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Flockdeck recording line, format version 1",
+  "description": "One line of a Flockdeck pane transcript (JSON Lines), made from the conversation the agent stored, whether recorded as it went on or exported afterwards. Consumers must ignore fields and line types they do not know, so additionalProperties is true. See docs/recording-format.md.",
+  "type": "object",
+  "required": ["v", "seq", "time", "session", "pane", "type"],
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "Format version. 1 for every file so far. Files of Flockdeck 0.3.47 and of later versions share it and differ in the ways the compatibility policy in docs/recording-format.md lists; a recording_started whose text is \"start of the transcript\" is a later file." },
+    "seq": { "type": "integer", "minimum": 1, "description": "Line number within the session file, from 1, with no gaps." },
+    "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When the event happened, as the agent's own record has it (in files of earlier versions, when Flockdeck wrote the line): RFC 3339, UTC, nanosecond precision. Does not go back from one line to the next." },
+    "session": { "type": "string", "minLength": 1, "description": "The transcript's id, <start>-<conversation>: the file's name without extension where Flockdeck named it." },
+    "pane": { "type": "string", "minLength": 1, "description": "The conversation's id in a transcript made now (the pane's id in files of earlier versions)." },
+    "paneName": { "type": "string" },
+    "project": { "type": "string" },
+    "agent": { "type": "string" },
+    "model": { "type": "string", "description": "The model that produced the turn, from the agent's stored conversation: on assistant_message and tool_call lines only, absent where none is recorded. Files of earlier versions have the pane's model on every line." },
+    "conversation": { "type": "string", "description": "The agent's own conversation id; changes after /clear." },
+    "gitBranch": { "type": "string", "description": "The git branch the stored entry behind the line records, redacted and cut like other strings. Absent where the entry records none, and in files made before this field was added." },
+    "cwd": { "type": "string", "description": "The working directory the stored entry behind the line records, as a full path (it can hold the user's account name), redacted and cut like other strings. Absent where the entry records none, and in files made before this field was added." },
+    "agentVersion": { "type": "string", "description": "The agent's own version (for Claude Code, the entry's version) that wrote the stored entry behind the line. Absent where the entry records none, and in files made before this field was added." },
+    "type": {
+      "type": "string",
+      "description": "The event type. session, permission_prompt, permission_outcome and status are no longer written, since a transcript is made from the agent's stored conversation, which has no record of them; files of earlier versions still have them.",
+      "enum": [
+        "recording_started", "recording_stopped", "recording_truncated", "session",
+        "user_prompt", "assistant_message", "tool_call", "tool_result",
+        "permission_prompt", "permission_outcome", "status",
+        "conversation_title", "conversation_compacted"
+      ]
+    },
+    "subagent": { "type": "string", "description": "The subagent an event came from; absent for the main agent." },
+    "text": { "type": "string" },
+    "usage": {
+      "type": "object",
+      "description": "Tokens a model reply used, on the first assistant_message or tool_call line of each reply only, so that adding up usage over a transcript counts every reply once. Absent on every other line, and in files made before this field was added.",
+      "required": ["inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"],
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "cacheCreationInputTokens": { "type": "integer", "minimum": 0 },
+        "cacheReadInputTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "stopReason": { "type": "string", "description": "Why a model reply ended, as the agent's stored conversation names it (for Claude Code: end_turn, tool_use, max_tokens, ...), on the first assistant_message or tool_call line of the reply the stored conversation gives one for, once. Absent elsewhere, where the stored reply has none, and in files made before this field was added." },
+    "title": { "type": "string", "description": "On a conversation_title line, the conversation's title." },
+    "trigger": { "type": "string", "description": "On a conversation_compacted line, what started it: auto or manual (the agent's own word). Absent where not recorded." },
+    "tokensBefore": { "type": "integer", "minimum": 0, "description": "On a conversation_compacted line, the conversation's size in tokens before it was summarised. Absent where not recorded." },
+    "tokensAfter": { "type": "integer", "minimum": 0, "description": "On a conversation_compacted line, its size in tokens after. Absent where not recorded." },
+    "tool": { "type": "string" },
+    "toolUseId": { "type": "string" },
+    "input": { "description": "The tool's input: any JSON value, usually an object." },
+    "output": { "type": "string" },
+    "isError": { "type": "boolean" },
+    "interrupted": { "type": "boolean" },
+    "outcome": { "type": "string", "enum": ["allowed", "denied", "abandoned", "auto_approved"] },
+    "inferred": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "source": { "type": "string", "description": "On a session line (no longer written), why the session began." },
+    "status": { "type": "string" },
+    "previous": { "type": "string" },
+    "detail": { "type": "string" },
+    "redacted": { "type": "boolean" },
+    "clipped": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "integer", "minimum": 1 },
+        "output": { "type": "integer", "minimum": 1 },
+        "detail": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "integer", "minimum": 1 },
+        "input": { "type": "integer", "minimum": 1 },
+        "title": { "type": "integer", "minimum": 1 },
+        "cwd": { "type": "integer", "minimum": 1 },
+        "gitBranch": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "recording_started" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "recording_stopped" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "recording_truncated" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "session" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "user_prompt" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "assistant_message" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "tool_call" } } }, "then": { "required": ["tool"] } },
+    { "if": { "properties": { "type": { "const": "tool_result" } } }, "then": { "required": ["tool"] } },
+    { "if": { "properties": { "type": { "const": "permission_prompt" } } }, "then": { "required": ["tool"] } },
+    { "if": { "properties": { "type": { "const": "permission_outcome" } } }, "then": { "required": ["outcome"] } },
+    { "if": { "properties": { "type": { "const": "status" } } }, "then": { "required": ["status"] } },
+    { "if": { "properties": { "type": { "const": "conversation_title" } } }, "then": { "required": ["title"] } }
+  ]
+}

@@ -28,6 +28,7 @@ dev = [
     "ruff>=0.5",
     "playwright>=1.45",
     "mypy>=1.10",
+    "jsonschema>=4.26.0",
 ]
 
 [project.scripts]
