@@ -101,30 +101,14 @@ async def test_session_without_enrichment_is_enriched_on_resubmit(sm, store):
     assert await count(sm, Session) == 1 and await count(sm, Enrichment) == 1
 
 
-async def test_two_workers_inserting_the_same_session_at_once(sm, store):
-    """Both pass the 'does it exist' check before either inserts; the loser must update the
-    winner's row instead of failing."""
-    from session_lens.worker import processor as proc
-
+async def test_two_files_of_the_same_session_processed_together_make_one_session(sm, store):
+    """Both runs are in flight at once; the second waits for the first's write lock and then
+    updates its row instead of inserting a duplicate."""
     files = [("a.jsonl", recording("race")), ("b.jsonl", recording("race", extra="longer"))]
     _, ids = await make_batch(sm, store, files)
     claims = await claim_items(sm, 2)
-    seen = asyncio.Barrier(2)
-    original = proc.upsert_session
-
-    async def synchronised(db, analysis, content_hash, raw_id):
-        async with db.begin_nested():  # existence check happens inside upsert_session
-            pass
-        await seen.wait()  # both are about to run the check against an empty table
-        return await original(db, analysis, content_hash, raw_id)
-
-    enricher = FakeEnricher()
-    p = processor(sm, store, enricher)
-    try:
-        proc.upsert_session = synchronised
-        await asyncio.gather(*(p.process(c) for c in claims))
-    finally:
-        proc.upsert_session = original
+    p = processor(sm, store, FakeEnricher())
+    await asyncio.gather(*(p.process(c) for c in claims))
     assert await count(sm, Session) == 1
     for i in ids:
         assert (await get_item(sm, i)).status == ItemStatus.done

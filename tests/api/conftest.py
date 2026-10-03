@@ -1,4 +1,4 @@
-"""API test fixtures: a throwaway database on the MySQL server named by DATABASE_URL."""
+"""API test fixtures: a throwaway SQLite database (see tests/conftest.py)."""
 
 from collections.abc import AsyncIterator
 from typing import Any
@@ -6,36 +6,31 @@ from typing import Any
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
 )
 
 from session_lens.api.app import create_app
 from session_lens.api.deps import get_store_provider
 from session_lens.config import Settings
-from session_lens.db.models import Base
+from session_lens.db.session import read_sessionmaker
 from session_lens.storage.memory import InMemoryStore
+from tests.dbutil import clear_tables, test_engine
 
 
 @pytest_asyncio.fixture
 async def engine(database_url: str) -> AsyncIterator[AsyncEngine]:
-    eng = create_async_engine(database_url)
-    async with eng.begin() as conn:
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(text(f"TRUNCATE TABLE `{table.name}`"))
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+    eng = test_engine(database_url)
+    await clear_tables(eng)
     yield eng
     await eng.dispose()
 
 
 @pytest_asyncio.fixture
 async def db(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
-    async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+    # Deferred, like a GET: a test that reads must not hold the write lock against the app.
+    async with read_sessionmaker(engine)() as session:
         yield session
 
 

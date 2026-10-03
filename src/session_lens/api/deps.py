@@ -21,7 +21,11 @@ def get_app_settings(request: Request) -> Settings:
 
 
 async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
-    async with request.app.state.sessionmaker() as session:
+    """A session per request. A GET only reads, so it gets a session that never takes the write
+    lock and cannot hold up the worker (or be held up by it)."""
+    reading = request.method in ("GET", "HEAD")
+    maker = request.app.state.read_sessionmaker if reading else request.app.state.sessionmaker
+    async with maker() as session:
         yield session
 
 

@@ -1,5 +1,5 @@
-"""The claim loop: claim due items with SELECT ... FOR UPDATE SKIP LOCKED, run them with
-bounded concurrency, and recover claims whose worker died."""
+"""The claim loop: claim due items, run them with bounded concurrency, and recover claims
+that were left running (the app was closed while an item was in flight)."""
 
 from __future__ import annotations
 
@@ -25,14 +25,12 @@ STALE_SWEEP_SECONDS = 30.0
 
 
 async def claim_items(sm: async_sessionmaker[AsyncSession], limit: int) -> list[Claim]:
-    """Atomically move up to `limit` due queued items to running. Concurrent workers skip rows
-    another worker holds, so no item is claimed twice. attempts is counted here, so an item
-    that keeps killing its worker still runs out of attempts."""
+    """Atomically move up to `limit` due queued items to running (the transaction holds the
+    write lock, so no item is claimed twice). attempts is counted here, so an item that keeps
+    killing the app still runs out of attempts."""
     if limit <= 0:
         return []
-    now = utcnow().replace(
-        microsecond=0
-    )  # MySQL DATETIME has no fraction; the claim token must round-trip
+    now = utcnow()
     async with sm() as db:
         items = (
             (
@@ -44,7 +42,6 @@ async def claim_items(sm: async_sessionmaker[AsyncSession], limit: int) -> list[
                     )
                     .order_by(BatchItem.id)
                     .limit(limit)
-                    .with_for_update(skip_locked=True)
                 )
             )
             .scalars()
@@ -76,7 +73,6 @@ async def recover_stale(
                     select(BatchItem)
                     .where(BatchItem.status == ItemStatus.running, BatchItem.locked_at < cutoff)
                     .order_by(BatchItem.id)
-                    .with_for_update(skip_locked=True)
                 )
             )
             .scalars()

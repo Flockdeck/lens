@@ -2,16 +2,16 @@
 stored file deleted and their row marked expired (`expired_at`); finished batches older than 90
 days are deleted. Sessions, metrics and enrichments are kept.
 
-Runs under a MySQL named lock so two overlapping runs (several workers, or a manual run during
-the periodic one) cannot collide."""
+One run at a time: a manual run during the periodic one is skipped."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import delete, exists, select, text, update
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
@@ -21,7 +21,6 @@ log = logging.getLogger(__name__)
 
 BATCH_RETENTION_DAYS = 90
 CHUNK = 1000
-LOCK_NAME = "session_lens_cleanup"
 
 
 @dataclass(frozen=True)
@@ -114,22 +113,20 @@ async def delete_old_batches(
             deleted += len(ids)
 
 
+_running = asyncio.Lock()
+
+
 async def run_cleanup(
     sm: async_sessionmaker[AsyncSession], store: RecordingStore, retention_days: int
 ) -> CleanupResult:
-    # GET_LOCK is held by a connection, so keep one session open (never committed) for the run.
-    async with sm() as lock_db:
-        got = (await lock_db.execute(text("SELECT GET_LOCK(:n, 0)"), {"n": LOCK_NAME})).scalar()
-        if got != 1:
-            log.info("cleanup skipped: another run holds the lock")
-            return CleanupResult(skipped=True)
-        try:
-            result = CleanupResult(
-                raws_expired=await expire_raws(sm, store, retention_days),
-                batches_deleted=await delete_old_batches(sm),
-            )
-        finally:
-            await lock_db.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": LOCK_NAME})
+    if _running.locked():  # the timer and a manual run, or two overlapping timers
+        log.info("cleanup skipped: another run is in progress")
+        return CleanupResult(skipped=True)
+    async with _running:
+        result = CleanupResult(
+            raws_expired=await expire_raws(sm, store, retention_days),
+            batches_deleted=await delete_old_batches(sm),
+        )
     log.info(
         "cleanup",
         extra={"raws_expired": result.raws_expired, "batches_deleted": result.batches_deleted},

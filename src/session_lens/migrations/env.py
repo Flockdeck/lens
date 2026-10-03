@@ -1,20 +1,21 @@
-"""Alembic environment. The database URL comes from DATABASE_URL (session_lens.config); the
-async asyncmy driver is used for migrations too, so there is one driver everywhere."""
+"""Alembic environment. The URL comes from the caller (`session_lens.db.migrate`) or, for
+development commands, from DATABASE_URL / the default data directory (session_lens.config)."""
 
 import asyncio
 
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from alembic import context
-from session_lens.config import get_settings
+from sqlalchemy.engine import Connection
+
+from session_lens.config import Settings, get_settings
 from session_lens.db.models import Base
+from session_lens.db.session import make_engine
 
 target_metadata = Base.metadata
 
 
-def _url() -> str:
-    return str(context.config.attributes.get("url") or get_settings().database_url)
+def _settings() -> Settings:
+    url = context.config.attributes.get("url")
+    return get_settings().model_copy(update={"database_url": str(url)}) if url else get_settings()
 
 
 def _configure(connection: Connection | None, url: str | None = None) -> None:
@@ -23,12 +24,13 @@ def _configure(connection: Connection | None, url: str | None = None) -> None:
         url=url,
         target_metadata=target_metadata,
         compare_type=True,
+        render_as_batch=True,  # SQLite cannot ALTER most things in place
         literal_binds=connection is None,
     )
 
 
 def run_migrations_offline() -> None:
-    _configure(None, _url())
+    _configure(None, _settings().database_url)
     with context.begin_transaction():
         context.run_migrations()
 
@@ -40,7 +42,7 @@ def _run(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    engine = create_async_engine(_url())
+    engine = make_engine(_settings())
     async with engine.connect() as connection:
         await connection.run_sync(_run)
     await engine.dispose()

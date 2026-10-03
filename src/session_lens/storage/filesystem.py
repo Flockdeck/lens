@@ -57,7 +57,13 @@ class FilesystemStore:
             d = d.parent
         root.mkdir(parents=True, exist_ok=True)
         for d in reversed(missing):
-            d.mkdir(mode=0o700, exist_ok=True)
+            try:
+                d.mkdir(mode=0o700, exist_ok=True)
+            except PermissionError:
+                # Windows reports "access denied", not "exists", when another thread is creating
+                # the same directory at that moment. If it is there now, that is all we wanted.
+                if not d.is_dir():
+                    raise
 
     def _put(self, key: str, data: bytes) -> None:
         path = self._path(key)

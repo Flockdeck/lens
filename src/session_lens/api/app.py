@@ -1,5 +1,6 @@
 """FastAPI app factory: `uvicorn session_lens.api.app:create_app --factory`."""
 
+import asyncio
 import ipaddress
 import logging
 import time
@@ -14,7 +15,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 from prometheus_client.platform_collector import PlatformCollector
 from prometheus_client.process_collector import ProcessCollector
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.responses import Response as StarletteResponse
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
@@ -38,6 +39,7 @@ from session_lens.api.routers import (
     settings as settings_router,
 )
 from session_lens.config import Settings, get_settings
+from session_lens.db.session import make_engine, read_sessionmaker
 
 log = logging.getLogger("session_lens.api")
 
@@ -72,15 +74,40 @@ class WebFiles(StaticFiles):
         return await super().get_response(path, scope)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, run_worker: bool = False) -> FastAPI:
+    """`run_worker=True` (what `session-lens serve` does) migrates the database and runs the
+    enrichment worker and retention cleanup inside the app's own event loop, so one process is
+    the whole service. Tests leave it off and drive the worker themselves."""
     settings = settings or get_settings()
     setup_logging(settings.log_level)
 
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    engine = make_engine(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        stop = asyncio.Event()
+        worker: asyncio.Task[None] | None = None
+        if run_worker:
+            from session_lens.db.migrate import upgrade_async
+            from session_lens.runtime_settings import DynamicEnricher
+            from session_lens.storage.base import build_store
+            from session_lens.worker.loop import run_worker as worker_loop
+
+            await upgrade_async(settings)
+            app.state.store = build_store(settings)
+            app.state.enricher = DynamicEnricher(app.state.sessionmaker, settings)
+            worker = asyncio.create_task(
+                worker_loop(
+                    app.state.sessionmaker, app.state.store, app.state.enricher, settings, stop
+                )
+            )
         yield
+        if worker is not None:
+            stop.set()  # drains: in-flight items get `shutdown_grace_seconds`, then are re-queued
+            try:
+                await worker
+            except Exception as exc:
+                log.warning("worker stopped badly", extra={"exc_type": type(exc).__name__})
         store = getattr(app.state, "store", None)  # only set once the lazy provider built it
         try:
             if store is not None:
@@ -99,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessionmaker = async_sessionmaker[AsyncSession](engine, expire_on_commit=False)
+    app.state.read_sessionmaker = read_sessionmaker(engine)
 
     registry = CollectorRegistry()
     ProcessCollector(registry=registry)

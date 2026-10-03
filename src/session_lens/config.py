@@ -1,19 +1,20 @@
 """Settings, read from the environment (prefix-free, upper-case)."""
 
 from functools import lru_cache
-from typing import Literal
+from pathlib import Path
+from typing import Literal, Self
 
-from pydantic import SecretStr
+from platformdirs import user_data_dir
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # mysql+asyncmy://user:password@host:3306/dbname?charset=utf8mb4
-    database_url: str = (
-        "mysql+asyncmy://session_lens:session_lens@127.0.0.1:3306/session_lens?charset=utf8mb4"
-    )
+    # Left blank, the database is a SQLite file in `data_dir`. Set it to point somewhere else, e.g.
+    # sqlite+aiosqlite:///C:/path/to/session-lens.db
+    database_url: str = ""
 
     # Names this machine answers to. A request addressed to any other name (DNS rebinding) is
     # refused, and so is a write from a page on another origin. To change the list, set
@@ -46,28 +47,27 @@ class Settings(BaseSettings):
     # The worker runs retention cleanup in-process this often; 0 disables it.
     cleanup_interval_seconds: int = 3600
 
-    # Where raw recordings are kept. Recordings never leave the machine with the default
-    # filesystem store; "s3" is an optional store for a bucket you run yourself.
-    storage: Literal["filesystem", "s3"] = "filesystem"
-    data_dir: str = "./data"
+    # Everything session-lens keeps lives here: the SQLite database and the raw recordings. The
+    # default is the per-user data directory of the operating system.
+    data_dir: str = Field(default_factory=lambda: user_data_dir("session-lens", appauthor=False))
     # Raw files older than this are deleted by cleanup (0 keeps them forever). Sessions, metrics
     # and enrichments are kept.
     raw_retention_days: int = 30
-    # Object key prefix (both stores): keys look like `recordings/YYYY/MM/<uuid>.jsonl`.
-    s3_prefix: str = "recordings/"
+    # Subdirectory of `data_dir` for the raw recordings: `recordings/YYYY/MM/<uuid>.jsonl`.
+    store_prefix: str = "recordings/"
 
-    # Only used when storage="s3".
-    s3_endpoint_url: str = "http://127.0.0.1:9000"
-    s3_region: str = "us-east-1"
-    s3_bucket: str = "session-lens"
-    s3_access_key: str = "minioadmin"
-    s3_secret_key: str = "minioadmin"
-    # "path" for SeaweedFS/MinIO-style servers; "auto" lets botocore choose (path-style for IP
-    # endpoints).
-    s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
-    s3_connect_timeout: float = 5.0
-    s3_read_timeout: float = 30.0
     log_level: str = "INFO"
+
+    # Where `session-lens serve` listens. Loopback only: there is no API key.
+    host: str = "127.0.0.1"
+    port: int = 8000
+
+    @model_validator(mode="after")
+    def _default_database(self) -> Self:
+        if not self.database_url.strip():
+            path = Path(self.data_dir).expanduser() / "session-lens.db"
+            self.database_url = f"sqlite+aiosqlite:///{path.as_posix()}"
+        return self
 
 
 @lru_cache

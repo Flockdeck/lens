@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -67,14 +67,9 @@ async def upsert_session(
     recording_session at once are handled: the loser's insert fails on the unique key and it
     updates the winner's row instead."""
     query = select(Session).where(Session.recording_session == analysis.recording_session)
-    for attempt in range(2):
-        # After losing a race the winner's row is committed but invisible to this transaction's
-        # snapshot (REPEATABLE READ), so the reload must be a locking read, which sees the
-        # latest committed state.
-        stmt = query.with_for_update() if attempt else query
-        row = (await db.execute(stmt)).scalar_one_or_none()
+    for _attempt in range(2):
+        row = (await db.execute(query)).scalar_one_or_none()
         if row is not None:
-            await db.refresh(row, with_for_update=True)  # serialise with other updaters
             unchanged = row.content_hash == content_hash
             _apply_analysis(row, analysis, content_hash, raw_id)
             await db.flush()
@@ -113,9 +108,8 @@ async def upsert_enrichment(db: AsyncSession, session_id: int, result: Enrichmen
     API's re-enrich endpoint. Safe against a concurrent insert for the same session (a second
     worker, or a re-enrich request): the loser updates the winner's row."""
     query = select(Enrichment).where(Enrichment.session_id == session_id)
-    for attempt in range(2):
-        # See upsert_session: after a lost race only a locking read sees the winner's row.
-        row = (await db.execute(query.with_for_update() if attempt else query)).scalar_one_or_none()
+    for _attempt in range(2):
+        row = (await db.execute(query)).scalar_one_or_none()
         if row is not None:
             _apply_result(row, result)
             await db.flush()
@@ -175,7 +169,7 @@ class ItemProcessor:
                 )
                 .values(
                     status=ItemStatus.queued,
-                    attempts=func.greatest(BatchItem.attempts - 1, 0),
+                    attempts=case((BatchItem.attempts > 1, BatchItem.attempts - 1), else_=0),
                     locked_at=None,
                     not_before=None,
                     updated_at=utcnow(),

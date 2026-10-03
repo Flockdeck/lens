@@ -6,20 +6,19 @@ from collections.abc import AsyncIterator, Callable
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from session_lens.config import Settings
 from session_lens.enrich.base import EnrichmentError
 from session_lens.recording.models import Analysis
 from session_lens.runtime_settings import DynamicEnricher, save_overrides
+from tests.dbutil import clear_tables, test_engine
 
 
 @pytest_asyncio.fixture
 async def sm(database_url: str) -> AsyncIterator[async_sessionmaker]:  # type: ignore[type-arg]
-    engine: AsyncEngine = create_async_engine(database_url)
-    async with engine.begin() as conn:
-        await conn.execute(text("DELETE FROM app_settings"))
+    engine: AsyncEngine = test_engine(database_url)
+    await clear_tables(engine)
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
 

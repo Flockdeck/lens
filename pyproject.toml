@@ -8,18 +8,19 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
     "sqlalchemy[asyncio]>=2.0.30",
-    "asyncmy>=0.2.9",
     "alembic>=1.13",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "httpx>=0.27",
     "anthropic>=1.0",
     "prometheus-client>=0.20",
-    "cryptography>=50.0.2",  # asyncmy needs it for MySQL 8 caching_sha2_password
+    # asyncmy needs it for MySQL 8 caching_sha2_password
+    "aiosqlite>=0.22.1",
+    "platformdirs>=4.12.2",
 ]
 
 [project.optional-dependencies]
-s3 = ["aioboto3>=13"]  # only for STORAGE=s3
+s3 = []  # only for STORAGE=s3
 
 [dependency-groups]
 dev = [

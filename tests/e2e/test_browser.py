@@ -1,5 +1,5 @@
 """The whole flow in a real browser, against a real server: the real app on a real port, the real
-worker, real MySQL and the real filesystem store. Nothing is faked between click and database.
+worker, real SQLite and the real filesystem store. Nothing is faked between click and database.
 
 These need a browser. They use Microsoft Edge if it is installed, else Playwright's Chromium
 (`uv run playwright install chromium`), and are skipped when neither can be launched.
@@ -18,14 +18,13 @@ from dataclasses import dataclass
 import httpx
 import pytest
 import uvicorn
-from sqlalchemy import text
 
 from session_lens.api.app import create_app
-from session_lens.db.models import Base
 from session_lens.db.session import make_engine, make_sessionmaker
 from session_lens.runtime_settings import DynamicEnricher
 from session_lens.storage.base import build_store
 from session_lens.worker.loop import run_worker
+from tests.dbutil import clear_tables
 from tests.e2e.conftest import make_settings, recording
 
 sync_api = pytest.importorskip("playwright.sync_api")
@@ -72,11 +71,7 @@ def live_app(database_url: str, tmp_path: pathlib.Path) -> Iterator[LiveApp]:
 
     async def main() -> None:
         engine = make_engine(settings)
-        async with engine.begin() as conn:
-            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-            for table in reversed(Base.metadata.sorted_tables):
-                await conn.execute(text(f"TRUNCATE TABLE `{table.name}`"))
-            await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+        await clear_tables(engine)
         server = uvicorn.Server(
             uvicorn.Config(create_app(settings), host="127.0.0.1", port=port, log_level="warning")
         )

@@ -103,7 +103,7 @@ async def test_config_endpoint(client: httpx.AsyncClient, app_settings: Settings
         "cleanup_interval_seconds",
         "version",
     }
-    assert body["storage"] in {"filesystem", "s3"}
+    assert body["storage"] == "filesystem"
     assert body["enricher"] == app_settings.enricher
     assert body["raw_retention_days"] == app_settings.raw_retention_days
     assert body["cleanup_interval_seconds"] is None or body["cleanup_interval_seconds"] > 0

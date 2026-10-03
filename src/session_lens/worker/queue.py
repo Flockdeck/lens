@@ -39,7 +39,7 @@ async def store_raw(session: AsyncSession, store: RecordingStore, data: bytes) -
     """Hash `data`, put the file, then add the row (flushed, not committed). Putting first
     means a row never points at a missing file; a failure after the put leaves an orphan
     file, which is unreferenced and harmless."""
-    key = new_object_key(get_settings().s3_prefix)
+    key = new_object_key(get_settings().store_prefix)
     await store.put(key, data)
     raw = RawRecording(
         content_hash=hashlib.sha256(data).hexdigest(), size_bytes=len(data), object_key=key
@@ -125,9 +125,7 @@ async def create_batch(
 
 
 async def _get_batch_locked(session: AsyncSession, batch_id: int) -> Batch:
-    batch = (
-        await session.execute(select(Batch).where(Batch.id == batch_id).with_for_update())
-    ).scalar_one_or_none()
+    batch = (await session.execute(select(Batch).where(Batch.id == batch_id))).scalar_one_or_none()
     if batch is None:
         raise BatchNotFound(batch_id)
     return batch

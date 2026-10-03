@@ -42,7 +42,11 @@ async def test_readyz_503_when_db_unreachable(database_url: str, store: InMemory
     from session_lens.api.deps import get_store_provider
     from session_lens.config import Settings
 
-    bad = database_url.rsplit("@", 1)[0] + "@127.0.0.1:1/none"
+    bad = (
+        "sqlite+aiosqlite:///file:"
+        + database_url.rsplit("/", 1)[0].split(":///")[1]
+        + "/missing.db?mode=ro&uri=true"
+    )
     app = create_app(Settings(database_url=bad, allowed_hosts=["test"]))
     app.dependency_overrides[get_store_provider] = lambda: lambda: store
     async with app.router.lifespan_context(app):

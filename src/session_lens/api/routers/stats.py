@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from session_lens.api.dates import RANGE_DOC, range_conditions
@@ -95,8 +95,11 @@ async def trends(
 ) -> list[TrendPoint]:
     moment = func.coalesce(SessionRow.started_at, SessionRow.created_at)
     day = func.date(moment)
-    # Weeks start on Monday (MySQL WEEKDAY: Monday = 0).
-    bucket = day if interval == "day" else func.subdate(day, func.weekday(moment))
+    # Weeks start on Monday. SQLite's %w is 0 for Sunday, so (%w + 6) % 7 is 0 for Monday.
+    days_since_monday = (cast(func.strftime("%w", moment), Integer) + 6) % 7
+    bucket = (
+        day if interval == "day" else func.date(moment, func.printf("-%d days", days_since_monday))
+    )
     stmt = (
         select(bucket.label("bucket"), *_aggregates())
         .select_from(SessionRow)

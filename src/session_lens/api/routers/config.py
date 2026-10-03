@@ -33,7 +33,7 @@ async def runtime_config(
 ) -> RuntimeConfig:
     settings = await effective_settings(request.app.state.sessionmaker, settings)
     return RuntimeConfig(
-        storage=getattr(settings, "storage", "filesystem"),
+        storage="filesystem",  # recordings are files under data_dir
         enricher=settings.enricher,
         raw_retention_days=settings.raw_retention_days,
         cleanup_interval_seconds=getattr(settings, "cleanup_interval_seconds", None),

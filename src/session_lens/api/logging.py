@@ -45,3 +45,11 @@ def setup_logging(level: str = "INFO") -> None:
     root.setLevel(level.upper())
     # uvicorn's access log includes query strings; the app logs its own request line instead.
     logging.getLogger("uvicorn.access").disabled = True
+    quiet_database_loggers()
+
+
+def quiet_database_loggers() -> None:
+    """aiosqlite logs every statement WITH its parameters at DEBUG, which would put an API key
+    (a row in app_settings) and recording content in the log whatever LOG_LEVEL says."""
+    for name in ("aiosqlite", "sqlalchemy.engine"):
+        logging.getLogger(name).setLevel(logging.WARNING)

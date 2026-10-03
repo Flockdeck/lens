@@ -1,7 +1,7 @@
 """End-to-end fixtures: the real stack, in one process.
 
-The real FastAPI app (through its ASGI interface), the real worker loop, real MySQL (built from the
-Alembic migrations by the shared `database_url` fixture), the real filesystem store in a temp
+The real FastAPI app (through its ASGI interface), the real worker loop, real SQLite (built from the
+Alembic migration by the shared `database_url` fixture), the real filesystem store in a temp
 directory, the real parser and the mock enricher. Nothing between an upload and a result is faked.
 """
 
@@ -22,11 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from session_lens.api.app import create_app
 from session_lens.config import Settings
-from session_lens.db.models import Base
 from session_lens.db.session import make_engine, make_sessionmaker
 from session_lens.enrich.base import Enricher, build_enricher
 from session_lens.storage.base import RecordingStore, build_store
 from session_lens.worker.loop import run_worker
+from tests.dbutil import clear_tables
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[1] / "fixtures"
 FIXTURE_SESSION = b"20261001T101530Z-0123abcd"
@@ -48,7 +48,6 @@ def make_settings(
     return Settings(
         database_url=database_url,
         allowed_hosts=list(hosts),
-        storage="filesystem",
         data_dir=str(data_dir),
         enricher="mock",
         cleanup_interval_seconds=0,  # the tests run cleanup themselves
@@ -154,11 +153,7 @@ class Stack:
 async def stack(database_url: str, tmp_path: pathlib.Path) -> AsyncIterator[Stack]:
     settings = make_settings(database_url, tmp_path / "data")
     engine: AsyncEngine = make_engine(settings)
-    async with engine.begin() as conn:
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(text(f"TRUNCATE TABLE `{table.name}`"))
-        await conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+    await clear_tables(engine)
 
     app = create_app(settings)
     async with app.router.lifespan_context(app):
