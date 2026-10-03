@@ -3,8 +3,9 @@
 session-lens is built as independent components. Each owns a directory and codes against the
 interfaces below, so they can be written in parallel and joined later. The product is described
 in `README.md`, the decisions in `docs/plan.md`, the input format in Flockdeck's
-`docs/recording-format.md` (branch `feat/pane-recording` of the flockdeck repo; the key rules
-are repeated in the README).
+`docs/recording-format.md` and `docs/recording-line.schema.json` (main branch of the flockdeck
+repo; the key rules are repeated in the README and below, and the schema is copied to
+`tests/fixtures/recording-line.schema.json`).
 
 | Component | Owns | Depends on |
 | --- | --- | --- |
@@ -32,6 +33,10 @@ class Event(BaseModel):           # one parsed line; extra fields allowed, envel
 class Analysis(BaseModel):         # everything computed from one file, no LLM
     recording_session: str
     project: str | None; agent: str | None; model: str | None; pane: str | None
+    pane_name: str | None
+    conversation: str | None       # the agent's conversation id, where the file has one
+    title: str | None              # the last conversation_title line; None if the file has none
+    source_format: Literal["transcript", "hooks"] | None
     started_at: datetime | None; ended_at: datetime | None
     completeness: Literal["clean", "truncated", "cut_off", "partial_agent"]
     metrics: Metrics               # see below
@@ -58,7 +63,71 @@ fetched file and slices by `seq`.
 `tool_mix: dict[str,int]`, `tool_errors`, `tool_interrupted`, `unpaired_calls`,
 `permission: {prompts, allowed, denied, auto_approved, abandoned}`,
 `status_seconds: dict[str,float]`, `redacted_lines`, `clipped_lines`, `models: list[str]` (every
-model named, in order; absent in sessions stored before it was added).
+model named, in order; absent in sessions stored before it was added), and, absent in sessions
+stored before they were added: `permissions_recorded: bool`, `status_recorded: bool`,
+`compactions: int`, `usage: {input_tokens, output_tokens, cache_creation_input_tokens,
+cache_read_input_tokens} | None`.
+
+### The two kinds of file
+
+Both are format `v: 1`, so `v` cannot tell them apart; the first line can
+(`Analysis.source_format`, also on the digest). Both are accepted.
+
+| | `"transcript"` (Flockdeck 0.3.48 and later) | `"hooks"` (0.3.47) |
+| --- | --- | --- |
+| first line | `recording_started`, text `start of the transcript` | text `turned on` or `resumed` |
+| made from | the agent's stored conversation | the events the agent reported while running |
+| `pane` | the conversation's id (so `Analysis.pane` is one too) | the pane's id |
+| `paneName` | not written (`pane_name` is None) | written |
+| `time` | when the event happened | when Flockdeck wrote the line |
+| `session` id | `<first event>-<conversation>` | `<start of recording>-<pane>` |
+| `session`, `permission_prompt`, `permission_outcome`, `status` | never | written |
+| `assistant_message` | every message, including those between tool calls | the last of each turn |
+| `user_prompt` | only what the person typed | also the agent's own (reminders, task notifications, slash commands) |
+| `model` | on `assistant_message` and `tool_call` only, the turn's own id (`claude-opus-5-5`) | on every line, the model the pane was asked for (`opus`) |
+| `gitBranch`, `cwd`, `agentVersion`, `usage`, `stopReason`, `conversation_title`, `conversation_compacted` | written where the stored conversation has them (an older transcript may lack them) | never |
+| subagents | left out: no line has `subagent`; the Task result is in the main agent's tool results | lines with `subagent` set |
+
+How the reader handles that:
+
+- A line type or field the reader does not know is skipped or kept as an extra. A field of a
+  known name in an unexpected shape reads as absent and the line is kept. Only the envelope
+  (`v`, `seq`, `time`, `session`, `pane`, `type`) is strict. This covers the newer fields too:
+  `usage`, `stopReason`, `gitBranch`, `cwd`, `agentVersion`, `title`, `trigger`, `tokensBefore`
+  and `tokensAfter`.
+- `Analysis.title` is the `title` of the last `conversation_title` line (a line is written when
+  the title first appears and when it changes). `Analysis.conversation` is the first
+  `conversation` seen. The database has no column for either yet.
+- **Permission and status lines are absent from a transcript, so the permission split and the time
+  in each status are empty, not zero.** `permission` stays all zeros and `status_seconds` empty,
+  and `permissions_recorded` / `status_recorded` say whether the file had any such line at all
+  (false for every transcript). A consumer must not read `denied == 0` as "nothing was denied"
+  when `permissions_recorded` is false. A tool the user refused is an error `tool_result`, so it
+  counts under `tool_errors`, not `permission.denied`.
+- `turns` and the digest's prompts count only prompts a person typed. A prompt that starts with
+  `<system-reminder`, `<task-notification`, `<command-name>`, `<command-message>`,
+  `<local-command-...`, `[Request interrupted by user` or `This session is being continued from a
+  previous conversation` is the agent's own and is skipped (a transcript has none; a file from
+  hooks has them). The prefixes are a heuristic: the format reference lists the kinds, not the
+  markup.
+- The digest's `final_messages` are the last assistant message of each turn (the last one before
+  the next typed prompt), so a transcript's "Let me look at the client first" messages do not push
+  the real answers out. A file from hooks has one per turn, so it gives the same list as before.
+- `usage` is summed over every line that has one: Flockdeck writes a reply's usage on its first
+  line only, so no deduplication is needed. The numbers are the agent's, for the main agent only,
+  and not a cost. `None` if no line has one.
+- `compactions` counts `conversation_compacted` lines. The summary itself is not in a transcript.
+- `tool_calls` of a transcript do not include a subagent's own calls; those of a file from hooks do.
+- `completeness`: a `recording_truncated` last line is `truncated` (the cap is 16 MiB either way),
+  a missing stop line is `cut_off`, and a file whose only lines are the recorder's own is
+  `partial_agent`. Unknown line types are ignored when looking for the ending.
+- `seq` runs from 1 with no gaps in both kinds; a gap is reported as a warning.
+- `duration_seconds` is last `time` minus first. In a transcript `time` is when the event
+  happened, so a conversation resumed after a break includes the break.
+- Redaction (`[redacted]`, `[withheld: a secret file]`) and clipping (`…[clipped N bytes]`, with
+  the `clipped` object) are the same in both. `clipped` may also name `title`, `cwd` and
+  `gitBranch`. In a file from before 0.3.48 a very large tool `input` can be the object
+  `{"_omitted":"too large to record"}`; a call with it has no path or command to read.
 
 ## enrich
 
