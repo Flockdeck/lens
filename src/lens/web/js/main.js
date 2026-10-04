@@ -15,6 +15,14 @@ onConfig((cfg) => {
 
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
+
+// "Skip to content" points at #main so it works without scripts, but here the hash is the route:
+// following it would send the router to its default page. Move the focus without touching the URL.
+document.querySelector(".skip")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  main.focus();
+});
+
 let cleanup = null;
 let renderId = 0;
 

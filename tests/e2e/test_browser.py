@@ -310,8 +310,13 @@ def test_the_keyboard_reaches_everything_and_the_focus_is_visible(
     assert focused()[0] == "Skip to content"
     # the skip link is visible when focused, and Enter moves the focus to the main area
     assert page.evaluate("document.querySelector('.skip').getBoundingClientRect().top") >= 0
+    before = page.url
     page.keyboard.press("Enter")
     assert page.evaluate("document.activeElement.id") == "main"
+    # ...without changing the address: the hash is the route, and #main is not one. It used to
+    # send the router to its default page, wherever the person was.
+    page.wait_for_timeout(300)
+    assert page.url == before and "#main" not in page.url
 
     # Enter follows a link: back up to Sessions and press it
     for _ in range(3):
@@ -492,3 +497,23 @@ def test_vague_terms_explain_themselves_to_mouse_keyboard_and_touch(
     assert page.get_by_role("button", name="What is Completeness?").count() == 1
     page.get_by_role("button", name="What is lens LLM?").click()
     assert page.locator(".info-note:visible", has_text="can change when you re-enrich").count() == 1
+
+
+def test_the_skip_link_keeps_the_person_on_the_page_they_are_on(
+    browser: sync_api.Browser, live_app: LiveApp
+) -> None:
+    live_app.wait_idle(live_app.upload(("run.jsonl", recording("claude_full", "skip"))))
+    page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+    page.set_default_timeout(20000)
+    open_app(page, live_app)
+    page.goto(live_app.url + "/#/sessions")
+    page.click("table a")
+    page.wait_for_selector("[role=tab]")
+    here = page.url
+
+    page.focus(".skip")
+    page.click(".skip", force=True)  # a click, as well as the Enter key above
+    page.wait_for_timeout(300)
+    assert page.url == here  # still the same session, not the Submit page
+    assert page.locator("[role=tab]").count() > 0
+    assert page.evaluate("document.activeElement.id") == "main"
