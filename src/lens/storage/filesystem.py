@@ -10,6 +10,25 @@ from pathlib import Path, PurePosixPath
 
 from lens.storage.base import RecordingExpired
 
+_EXTENDED = "\\\\?\\"
+_EXTENDED_UNC = "\\\\?\\UNC\\"
+
+
+def strip_extended_prefix(path: str) -> str:
+    """Windows spells one place two ways: the plain drive form and one that starts with a double
+    backslash, a question mark and a backslash. Path.resolve() returns the second for a path
+    under a directory that another thread is creating at that moment, so comparing it with the
+    first says the path is somewhere else."""
+    if path.startswith(_EXTENDED_UNC):
+        return "\\\\" + path[len(_EXTENDED_UNC) :]
+    if path.startswith(_EXTENDED):
+        return path[len(_EXTENDED) :]
+    return path
+
+
+def _plain(path: Path) -> Path:
+    return Path(strip_extended_prefix(str(path))) if os.name == "nt" else path
+
 
 class InvalidKey(ValueError):
     """The key is not a safe relative path inside the store root."""
@@ -41,7 +60,7 @@ class FilesystemStore:
                 self._root.mkdir(parents=True, exist_ok=True)
             except OSError:
                 pass  # unusable: the operation that needed it reports that
-            self._real = self._root.resolve()
+            self._real = _plain(self._root.resolve())
         return self._real
 
     def _path(self, key: str) -> Path:
@@ -57,7 +76,7 @@ class FilesystemStore:
         ):
             raise InvalidKey("invalid key")
         root = self._real_root()
-        path = root.joinpath(*parts).resolve()
+        path = _plain(root.joinpath(*parts).resolve())
         if path == root or not path.is_relative_to(root):
             raise InvalidKey("key escapes the store root")
         return path

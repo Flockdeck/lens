@@ -1,0 +1,81 @@
+name: build
+
+# Build the program on every platform and use it. Called by ci.yaml (to prove it builds and runs on
+# every push) and by release.yaml (to make the files that get released), so both go through exactly
+# the same steps.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version written into the program and the archive names
+        type: string
+        default: 0.0.0-dev
+      retention-days:
+        type: number
+        default: 3
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.goos }} ${{ matrix.goarch }})
+    # Windows on arm64 may lack wheels for some dependencies; it reports but does not block.
+    continue-on-error: ${{ matrix.experimental }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners: PyInstaller cannot cross-compile.
+          - {os: ubuntu-latest,    goos: linux,   goarch: amd64, ext: tar.gz, exe: lens,     experimental: false}
+          - {os: ubuntu-24.04-arm, goos: linux,   goarch: arm64, ext: tar.gz, exe: lens,     experimental: false}
+          - {os: macos-15-intel,   goos: darwin,  goarch: amd64, ext: tar.gz, exe: lens,     experimental: false}
+          - {os: macos-latest,     goos: darwin,  goarch: arm64, ext: tar.gz, exe: lens,     experimental: false}
+          - {os: windows-latest,   goos: windows, goarch: amd64, ext: zip,    exe: lens.exe, experimental: false}
+          - {os: windows-11-arm,   goos: windows, goarch: arm64, ext: zip,    exe: lens.exe, experimental: true}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - name: Put the version in the program
+        run: |
+          sed -i.bak "s/^__version__ = .*/__version__ = '${VERSION}'/" src/lens/_version.py
+          rm src/lens/_version.py.bak
+          uv run python -c "from lens._version import app_version; print(app_version())"
+      - name: Build
+        run: uv run pyinstaller packaging/lens.spec --noconfirm --distpath dist --workpath build
+      - name: Check the version it reports
+        run: |
+          reported="$(./dist/${{ matrix.exe }} version)"
+          echo "reported: ${reported}"
+          test "${reported}" = "${VERSION}"
+      - name: Use the program we just built
+        run: uv run python packaging/smoke.py "dist/${{ matrix.exe }}"
+      - name: Archive
+        run: |
+          NAME="lens_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "out/${NAME}"
+          cp "dist/${{ matrix.exe }}" "out/${NAME}/"
+          cp README.md "out/${NAME}/"
+          cd out
+          if [ "${{ matrix.ext }}" = "zip" ]; then
+            7z a "${NAME}.zip" "${NAME}" > /dev/null
+          else
+            chmod +x "${NAME}/${{ matrix.exe }}"
+            tar -czf "${NAME}.tar.gz" "${NAME}"
+          fi
+          echo "ARCHIVE=${NAME}.${{ matrix.ext }}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: out/${{ env.ARCHIVE }}
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: error

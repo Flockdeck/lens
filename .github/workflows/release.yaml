@@ -1,71 +1,41 @@
 name: release
 
-# Push a tag like v0.2.0 to build the program on every platform and draft a release.
-# Run by hand (workflow_dispatch) to build and smoke-test without releasing anything.
+# Push a tag like v0.2.0. It runs all of ci.yaml, builds the program on every platform with the
+# tag as its version, and drafts a GitHub release holding the archives and their checksums.
+# Nothing is published: you read the draft and press the button.
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Native runners: PyInstaller cannot cross-compile.
-          - {os: ubuntu-latest,    goos: linux,   goarch: amd64, ext: tar.gz, exe: lens}
-          - {os: ubuntu-24.04-arm, goos: linux,   goarch: arm64, ext: tar.gz, exe: lens}
-          - {os: macos-15-intel,   goos: darwin,  goarch: amd64, ext: tar.gz, exe: lens}
-          - {os: macos-latest,     goos: darwin,  goarch: arm64, ext: tar.gz, exe: lens}
-          - {os: windows-latest,   goos: windows, goarch: amd64, ext: zip,    exe: lens.exe}
-          - {os: windows-11-arm,   goos: windows, goarch: arm64, ext: zip,    exe: lens.exe}
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+  validate:
+    uses: ./.github/workflows/ci.yaml
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      value: ${{ steps.v.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv python install 3.12
-      - run: uv sync --frozen
-      - name: Put the tag in the program
+      - id: v
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then VERSION="0.0.0-dev"; fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          sed -i.bak "s/^__version__ = .*/__version__ = '${VERSION}'/" src/lens/_version.py
-          rm src/lens/_version.py.bak
-          python -c "import ast,sys; ast.parse(open('src/lens/_version.py').read())"
-          grep __version__ src/lens/_version.py | head -1
-      - run: uv run pyinstaller packaging/lens.spec --noconfirm --distpath dist --workpath build
-      - name: Use the program we just built
-        run: uv run python packaging/smoke.py "dist/${{ matrix.exe }}"
-      - name: Archive
-        run: |
-          NAME="lens_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
-          mkdir -p "out/${NAME}"
-          cp "dist/${{ matrix.exe }}" "out/${NAME}/"
-          cp README.md "out/${NAME}/"
-          cd out
-          if [ "${{ matrix.ext }}" = "zip" ]; then
-            7z a "${NAME}.zip" "${NAME}" > /dev/null
-          else
-            chmod +x "${NAME}/${{ matrix.exe }}"
-            tar -czf "${NAME}.tar.gz" "${NAME}"
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "tag ${tag} is not vMAJOR.MINOR.PATCH"
+            exit 1
           fi
-          echo "ARCHIVE=${NAME}.${{ matrix.ext }}" >> "$GITHUB_ENV"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE }}
-          path: out/${{ env.ARCHIVE }}
-          if-no-files-found: error
+          echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [validate, version]
+    uses: ./.github/workflows/build.yaml
+    with:
+      version: ${{ needs.version.outputs.value }}
+      retention-days: 30
 
   release:
-    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -76,11 +46,15 @@ jobs:
           path: artifacts
           merge-multiple: true
       - name: Checksums
-        run: cd artifacts && sha256sum lens_* > checksums.txt && cat checksums.txt
+        run: |
+          cd artifacts
+          ls -l
+          sha256sum lens_* > checksums.txt
+          cat checksums.txt
       - name: Draft the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF_NAME}" artifacts/* \
             --repo "${GITHUB_REPOSITORY}" --draft --title "${GITHUB_REF_NAME}" \
-            --notes "Unsigned builds. Check them against checksums.txt."
+            --notes "Unsigned builds. Check each file against checksums.txt."

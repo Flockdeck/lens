@@ -156,3 +156,22 @@ def test_build_store_defaults_to_the_filesystem(tmp_path):
 
     store = build_store(Settings(data_dir=str(tmp_path / "d")))
     assert isinstance(store, FilesystemStore) and store.root == tmp_path / "d"
+
+
+def test_both_spellings_of_a_windows_path_compare_equal():
+    from lens.storage.filesystem import strip_extended_prefix
+
+    assert strip_extended_prefix(r"\\?\C:\Users\a\x.jsonl") == r"C:\Users\a\x.jsonl"
+    assert strip_extended_prefix(r"\\?\UNC\srv\share\x") == r"\\srv\share\x"
+    assert strip_extended_prefix(r"C:\Users\a\x.jsonl") == r"C:\Users\a\x.jsonl"
+    assert strip_extended_prefix("/home/a/x.jsonl") == "/home/a/x.jsonl"
+
+
+async def test_many_concurrent_writes_into_directories_that_do_not_exist_yet(tmp_path):
+    """Each round makes a new store, so every put races the others to create the same folders.
+    On Windows this used to fail now and then with 'key escapes the store root'."""
+    for round_ in range(40):
+        store = FilesystemStore(tmp_path / f"round-{round_}")
+        keys = [key() for _ in range(8)]
+        await asyncio.gather(*(store.put(k, b"x") for k in keys))
+        assert [await store.get(k) for k in keys] == [b"x"] * 8

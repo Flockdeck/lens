@@ -1,20 +1,27 @@
 name: ci
 
+# Everything that has to be true before a change is merged or a release is made.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays: catches a dependency or an advisory that changed under us
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  static:
+    name: lint, types, lockfile, workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -22,20 +29,26 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync --frozen
-      - name: Install a browser for the end-to-end tests
-        run: uv run playwright install --with-deps chromium
+      - name: Lockfile matches pyproject
+        run: uv lock --check
       - name: Ruff
         run: |
           uv run ruff check .
           uv run ruff format --check .
-      - name: Mypy
-        run: uv run mypy --strict src
-      - name: Pytest
-        run: uv run pytest
+      - name: Mypy, once per platform (some code is platform specific)
+        run: |
+          for platform in linux win32 darwin; do
+            echo "::group::mypy --platform ${platform}"
+            uv run mypy --strict --platform "${platform}" src
+            echo "::endgroup::"
+          done
+      - name: Workflows
+        run: uvx --from actionlint-py actionlint
 
-  # The program people actually run: build it, then use it. Nothing is published from here.
-  binary:
+  docs:
+    name: docs (diagrams render, links resolve)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -43,5 +56,87 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync --frozen
-      - run: uv run pyinstaller packaging/lens.spec --noconfirm --distpath dist --workpath build
-      - run: uv run python packaging/smoke.py dist/lens
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run python packaging/check_docs.py
+
+  test:
+    name: test (${{ matrix.os }}, python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12"]
+        include:
+          - {os: ubuntu-latest, python: "3.13"}
+    env:
+      # Only the Linux 3.12 leg enforces the coverage floor; some code runs on one platform only.
+      COVERAGE_FLOOR: ${{ matrix.os == 'ubuntu-latest' && matrix.python == '3.12' && '--cov-fail-under=90' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install ${{ matrix.python }}
+      - run: uv sync --frozen --python ${{ matrix.python }}
+      - name: Install a browser for the end-to-end tests (Linux also needs its libraries)
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Linux" ]; then
+            uv run playwright install --with-deps chromium
+          else
+            uv run playwright install chromium
+          fi
+      - name: Pytest (unit, API, worker, end-to-end, browser, JavaScript)
+        shell: bash
+        run: >
+          uv run pytest -ra --durations=10
+          --cov=lens --cov-branch --cov-report=term-missing:skip-covered --cov-report=xml
+          --junitxml=pytest.xml ${COVERAGE_FLOOR}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            pytest.xml
+            coverage.xml
+          retention-days: 7
+
+  audit:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - name: Audit what ships in the program
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project -o runtime-requirements.txt
+          uvx pip-audit --strict --no-deps --disable-pip -r runtime-requirements.txt
+
+  binaries:
+    name: binaries
+    uses: ./.github/workflows/build.yaml
+    with:
+      version: 0.0.0-ci
+
+  # One name to require in branch protection.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [static, docs, test, audit, binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Everything passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: ${RESULTS}"
+          for r in ${RESULTS}; do
+            if [ "${r}" != "success" ]; then
+              echo "a required job did not succeed"
+              exit 1
+            fi
+          done
