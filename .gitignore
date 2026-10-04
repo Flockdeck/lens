@@ -11,3 +11,7 @@ data/
 dist/
 build/
 *.spec.bak
+.coverage
+coverage.xml
+htmlcov/
+.venv*/
