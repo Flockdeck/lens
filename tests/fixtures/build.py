@@ -310,12 +310,245 @@ def chat_client() -> bytes:
     return r.data()
 
 
+CONVERSATION = "0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+MODEL = "claude-opus-5-5"
+USAGE_KEYS = ("inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens")
+ENTRY = {"gitBranch": "main", "cwd": "/home/sam/shop", "agentVersion": "2.1.286"}
+
+
+class Transcript:
+    """Builds lines the way a transcript made from the agent's stored conversation has them.
+
+    `pane` is the conversation's id and there is no `paneName`. `model`, `gitBranch`, `cwd` and
+    `agentVersion` come from the stored entry, so only the lines made from one have them (see
+    `entry`, `reply`). A reply's `usage` and `stopReason` go on its first line only.
+    """
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        self.seq = 0
+
+    def add(self, time: str, type_: str, **fields: object) -> "Transcript":
+        self.seq += 1
+        line: dict[str, object] = {
+            "v": 1,
+            "seq": self.seq,
+            "time": f"2026-10-01T{time}Z",
+            "session": SESSION,
+            "pane": CONVERSATION,
+            "project": "shop",
+            "agent": "claude",
+            "conversation": CONVERSATION,
+            "type": type_,
+        }
+        line.update(fields)
+        self.lines.append(json.dumps(line, ensure_ascii=False, separators=(",", ":")))
+        return self
+
+    def entry(self, time: str, type_: str, **fields: object) -> "Transcript":
+        """A line made from an entry of the stored conversation."""
+        return self.add(time, type_, **ENTRY, **fields)
+
+    def reply(
+        self,
+        time: str,
+        type_: str,
+        *,
+        usage: tuple[int, int, int, int] | None = None,
+        stop: str | None = None,
+        **fields: object,
+    ) -> "Transcript":
+        """An assistant_message or tool_call: it has the turn's own model."""
+        extra: dict[str, object] = {"model": MODEL}
+        if usage:
+            extra["usage"] = dict(zip(USAGE_KEYS, usage, strict=True))
+        if stop:
+            extra["stopReason"] = stop
+        return self.entry(time, type_, **extra, **fields)
+
+    def data(self) -> bytes:
+        return ("\n".join(self.lines) + "\n").encode("utf-8")
+
+
+def transcript_full() -> bytes:
+    """A complete transcript: titles, tool calls and results, a subagent, a compaction.
+
+    Two turns. The agent speaks mid-turn ("Let me run the tests first."), which a transcript
+    records and a file from hooks does not. No permission, status or session lines.
+    """
+    t = Transcript()
+    t.add("10:15:30.1", "recording_started", text="start of the transcript")
+    t.entry("10:15:30.1", "user_prompt", text="run the tests and fix what fails")
+    t.add("10:15:30.1", "conversation_title", title="Fix the failing tests")
+    t.reply(
+        "10:15:41.0",
+        "assistant_message",
+        text="Let me run the tests first.",
+        usage=(6, 40, 1450, 30705),
+        stop="tool_use",
+    )
+    t.reply(
+        "10:15:42.0",
+        "tool_call",
+        tool="Bash",
+        toolUseId="toolu_01",
+        input={"command": "go test ./...", "description": "Run the tests"},
+    )
+    t.entry(
+        "10:15:58.4",
+        "tool_result",
+        tool="Bash",
+        toolUseId="toolu_01",
+        output="FAIL\tshop/api\t0.412s",
+        isError=True,
+    )
+    t.reply(
+        "10:16:00.0",
+        "tool_call",
+        tool="Read",
+        toolUseId="toolu_02",
+        input={"file_path": "api/handler.go"},
+        usage=(3, 55, 210, 32155),
+        stop="tool_use",
+    )
+    t.entry("10:16:00.5", "tool_result", tool="Read", toolUseId="toolu_02", output="package api")
+    t.reply(
+        "10:16:04.0",
+        "assistant_message",
+        text="The handler returns before it checks the error. I will fix that.",
+        usage=(2, 80, 150, 32365),
+        stop="tool_use",
+    )
+    t.reply(
+        "10:16:05.0",
+        "tool_call",
+        tool="Edit",
+        toolUseId="toolu_03",
+        input={"file_path": "api/handler.go", "old_string": "a", "new_string": "b"},
+    )
+    t.entry("10:16:05.4", "tool_result", tool="Edit", toolUseId="toolu_03", output="edited")
+    t.reply(
+        "10:16:10.0",
+        "tool_call",
+        tool="Task",
+        toolUseId="toolu_04",
+        input={"description": "Find TODOs", "prompt": "List the TODO comments in api/"},
+        usage=(3, 60, 120, 32515),
+        stop="tool_use",
+    )
+    t.entry(
+        "10:16:42.0", "tool_result", tool="Task", toolUseId="toolu_04", output="One: handler.go:12"
+    )
+    t.reply(
+        "10:16:45.0",
+        "tool_call",
+        tool="Bash",
+        toolUseId="toolu_05",
+        input={"command": "go test ./..."},
+        usage=(2, 30, 90, 32635),
+        stop="tool_use",
+    )
+    t.entry("10:16:50.0", "tool_result", tool="Bash", toolUseId="toolu_05", output="ok  shop/api")
+    t.reply(
+        "10:16:55.9",
+        "assistant_message",
+        text="All 212 tests pass.",
+        usage=(2, 12, 40, 32725),
+        stop="end_turn",
+    )
+    t.entry(
+        "10:30:00.0",
+        "conversation_compacted",
+        trigger="auto",
+        tokensBefore=970192,
+        tokensAfter=22085,
+    )
+    t.add("10:30:00.0", "conversation_title", title="Fix the handler error check")
+    t.entry("10:31:00.0", "user_prompt", text="push it to main")
+    t.reply(
+        "10:31:03.0",
+        "tool_call",
+        tool="Bash",
+        toolUseId="toolu_06",
+        input={"command": "git push --force origin main"},
+        usage=(5, 25, 22085, 0),
+        stop="tool_use",
+    )
+    t.entry(
+        "10:31:30.0",
+        "tool_result",
+        tool="Bash",
+        toolUseId="toolu_06",
+        output="The user rejected this tool use.",
+        isError=True,
+    )
+    t.reply(
+        "10:31:32.0",
+        "assistant_message",
+        text="Understood, I have not pushed.",
+        usage=(3, 9, 30, 22085),
+        stop="end_turn",
+    )
+    t.add("10:31:32.0", "recording_stopped", text="end of the transcript")
+    return t.data()
+
+
+def transcript_truncated() -> bytes:
+    """A conversation longer than the size cap: strings clipped, then a truncation line."""
+    t = Transcript()
+    t.add("10:15:30.1", "recording_started", text="start of the transcript")
+    t.entry("10:15:30.1", "user_prompt", text="refactor the parser")
+    t.reply(
+        "10:15:42.0",
+        "tool_call",
+        tool="Read",
+        toolUseId="toolu_01",
+        input={"file_path": "parser.go"},
+        usage=(4, 20, 900, 1000),
+        stop="tool_use",
+    )
+    t.entry(
+        "10:15:42.3",
+        "tool_result",
+        tool="Read",
+        toolUseId="toolu_01",
+        output="package p" + "x" * 11 + "…[clipped 16384 bytes]",
+        clipped={"output": 24576},
+    )
+    t.reply("10:15:50.0", "tool_call", tool="Bash", toolUseId="toolu_02", input={"command": "make"})
+    t.add(
+        "11:02:44.0",
+        "recording_truncated",
+        text="the transcript reached its size cap of 16 MiB and ended here",
+    )
+    return t.data()
+
+
+def transcript_minimal() -> bytes:
+    """No title, no tools, no permission lines: one question and one answer."""
+    t = Transcript()
+    t.add("10:15:30.1", "recording_started", text="start of the transcript")
+    t.entry("10:15:30.1", "user_prompt", text="what does the retry setting do?")
+    t.reply(
+        "10:15:36.0",
+        "assistant_message",
+        text="It sets how many times the client tries again.",
+        usage=(3, 18, 500, 2000),
+        stop="end_turn",
+    )
+    t.add("10:15:36.0", "recording_stopped", text="end of the transcript")
+    return t.data()
+
+
 def empty() -> bytes:
     return b""
 
 
 def all_fixtures() -> dict[str, bytes]:
     return {
+        "transcript_full.jsonl": transcript_full(),
+        "transcript_truncated.jsonl": transcript_truncated(),
+        "transcript_minimal.jsonl": transcript_minimal(),
         "claude_full.jsonl": claude_full(),
         "truncated.jsonl": truncated(),
         "cut_off_last_line.jsonl": cut_off_last_line(),

@@ -110,11 +110,20 @@ program for this machine and `make smoke` runs it end to end.
 
 ### Input
 
-Flockdeck's per-pane recording writes one JSON Lines file per session. Every line has an
-envelope (`v`, `seq`, `time`, `session`, `pane`, `agent`, `model`, `type`) and one of
-`session`, `user_prompt`, `assistant_message`, `tool_call`, `tool_result`, `permission_prompt`,
-`permission_outcome`, `status`, `recording_started`, `recording_stopped`, `recording_truncated`.
-The format is versioned and documented in Flockdeck's `docs/recording-format.md`.
+Flockdeck writes one JSON Lines file per conversation (a transcript). Every line has an
+envelope (`v`, `seq`, `time`, `session`, `pane`, `type`, and usually `agent`, `model` and
+`conversation`) and one of `recording_started`, `recording_stopped`, `recording_truncated`,
+`user_prompt`, `assistant_message`, `tool_call`, `tool_result`, `conversation_title` or
+`conversation_compacted`. The format is versioned and documented in Flockdeck's
+`docs/recording-format.md`, with a JSON Schema beside it.
+
+Two kinds of file share version 1, and both are accepted. Flockdeck 0.3.48 and later builds the
+transcript from the agent's stored conversation: it has every assistant message and no
+permission or status lines, `pane` holds the conversation's id, and the first line says `start of
+the transcript`. Version 0.3.47 recorded the agent's live hook events, so its files also have
+`session`, `permission_prompt`, `permission_outcome` and `status` lines, a pane id and name, and
+`turned on` in the first line. For a transcript the permission split and the time per status are
+shown as not recorded, not as zero. `docs/contracts.md` has the details.
 
 What the service has to cope with:
 

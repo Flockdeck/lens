@@ -19,9 +19,6 @@ dependencies = [
     "platformdirs>=4.12.2",
 ]
 
-[project.optional-dependencies]
-s3 = []  # only for STORAGE=s3
-
 [dependency-groups]
 dev = [
     "pytest>=8",
@@ -30,6 +27,7 @@ dev = [
     "playwright>=1.45",
     "mypy>=1.10",
     "pyinstaller>=6.22.3",
+    "jsonschema>=4.26.0",
 ]
 
 [project.scripts]
@@ -59,8 +57,3 @@ select = ["E", "F", "I", "UP", "B", "ASYNC"]
 strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
-
-# The S3 store is an optional extra (`uv sync --extra s3`); type-check the same way with or without it.
-[[tool.mypy.overrides]]
-module = ["aioboto3", "aioboto3.*", "aiobotocore.*", "botocore", "botocore.*"]
-ignore_missing_imports = true

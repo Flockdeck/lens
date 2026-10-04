@@ -8,6 +8,7 @@ from session_lens.recording.models import (
     Metrics,
     PermissionStats,
     RiskyAction,
+    TokenUsage,
 )
 from session_lens.recording.parser import (
     EmptyRecording,
@@ -27,6 +28,7 @@ __all__ = [
     "Metrics",
     "PermissionStats",
     "RiskyAction",
+    "TokenUsage",
     "UnsupportedVersion",
     "analyze",
     "analyze_lines",
