@@ -211,8 +211,9 @@ def test_the_whole_flow_in_a_browser(
 
     # --- browse and filter -------------------------------------------------------------------
     page.click("text=View sessions")
-    page.wait_for_selector("tbody tr")
-    assert page.locator("tbody tr").count() == 3
+    # The batch page being left has a table too, so wait for the new page and for its rows.
+    page.wait_for_url("**/#/sessions*")
+    page.wait_for_function("document.querySelectorAll('tbody tr').length === 3")
     page.locator("select").filter(has=page.locator("option[value=stuck]")).select_option("stuck")
     page.click("button:has-text('Apply')")
     page.wait_for_function("document.querySelectorAll('tbody tr').length === 1")
