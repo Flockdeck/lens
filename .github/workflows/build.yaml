@@ -6,10 +6,10 @@ name: build
 on:
   workflow_call:
     inputs:
-      version:
-        description: Version written into the program and the archive names
+      tag:
+        description: The release tag, such as v0.2.0. It names the archives; without the v it is the version the program reports.
         type: string
-        default: 0.0.0-dev
+        default: v0.0.0-dev
       retention-days:
         type: number
         default: 3
@@ -39,7 +39,7 @@ jobs:
       run:
         shell: bash
     env:
-      VERSION: ${{ inputs.version }}
+      TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -47,6 +47,8 @@ jobs:
       - run: uv sync --frozen
       - name: Put the version in the program
         run: |
+          VERSION="${TAG#v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           sed -i.bak "s/^__version__ = .*/__version__ = '${VERSION}'/" src/lens/_version.py
           rm src/lens/_version.py.bak
           uv run python -c "from lens._version import app_version; print(app_version())"
@@ -61,7 +63,7 @@ jobs:
         run: uv run python packaging/smoke.py "dist/${{ matrix.exe }}"
       - name: Archive
         run: |
-          NAME="lens_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          NAME="lens_${TAG}_${{ matrix.goos }}_${{ matrix.goarch }}"
           mkdir -p "out/${NAME}"
           cp "dist/${{ matrix.exe }}" "out/${NAME}/"
           cp README.md "out/${NAME}/"

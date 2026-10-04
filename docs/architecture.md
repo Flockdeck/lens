@@ -859,13 +859,13 @@ flowchart LR
     src[source and tests] --> pyi[PyInstaller<br/>packaging/lens.spec]
     pyi --> exe["lens(.exe)<br/>one file, about 25 MB:<br/>Python, dependencies,<br/>web UI files, migration"]
     exe --> smoke[packaging/smoke.py<br/>starts it, uses it over HTTP]
-    smoke --> arch[lens_VERSION_OS_ARCH<br/>.tar.gz or .zip]
-    arch --> rel[GitHub release draft<br/>with checksums.txt]
+    smoke --> arch[lens_TAG_OS_ARCH<br/>.tar.gz or .zip]
+    arch --> rel[signed release on GitHub<br/>and on dl.flockdeck.ai/lens]
 ```
 
 A one-file executable is a launcher that unpacks itself and runs the real program as a child. If something kills the launcher outright, the child is not told. `parent_watch` runs in the child, notices that its parent process (the same program) is gone and asks the server to shut down normally. It does nothing when the parent is a shell or another program, so running the server from a script that exits early is unaffected.
 
-The smoke test runs the built executable the way a person would: upload a recording, wait for the analysis, read it back, restart and check nothing was lost, select the Anthropic enricher aimed at a dead local port (this proves the SDK is inside the executable, and nothing is sent), and kill the launcher to check the server goes too. It runs per platform in CI.
+The smoke test runs the built executable the way a person would: upload a recording, wait for the analysis, read it back, restart and check nothing was lost, select the Anthropic enricher aimed at a dead local port (this proves the SDK is inside the executable, and nothing is sent), and kill the launcher to check the server goes too. It runs per platform in CI. How the archives are signed and published is in [releasing.md](releasing.md).
 
 ## 9. Where to look in the code
 

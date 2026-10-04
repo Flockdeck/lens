@@ -1,0 +1,88 @@
+// This file is not built here. CI copies it, as lens_release_test.go, into a checkout of
+// Flockdeck/flockdeck's internal/selfupdate package and runs it there, so that a lens release is
+// judged by the code Flockdeck really uses to check releases, at Flockdeck's current main:
+//
+//	LENS_RELEASE_DIR=... LENS_VERSION=v0.3.0 LENS_TEST_PUBKEY=<raw base64> \
+//	LENS_TRUSTED_KEYS="<raw base64> <raw base64>" \
+//	go test ./internal/selfupdate -run TestLens -count=1
+//
+// LENS_RELEASE_DIR holds a release signed by packaging/fake_release.py with a throwaway key whose
+// public half is LENS_TEST_PUBKEY. LENS_TRUSTED_KEYS are the keys packaging/release.py embeds.
+package selfupdate
+
+import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+)
+
+func TestLensReleaseIsAcceptedByTheUpdaterChecks(t *testing.T) {
+	dir := os.Getenv("LENS_RELEASE_DIR")
+	if dir == "" {
+		t.Skip("LENS_RELEASE_DIR is not set")
+	}
+	version := os.Getenv("LENS_VERSION")
+	raw, err := base64.StdEncoding.DecodeString(os.Getenv("LENS_TEST_PUBKEY"))
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		t.Fatalf("LENS_TEST_PUBKEY is not a raw base64 Ed25519 key")
+	}
+	keys := []ed25519.PublicKey{raw}
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+
+	if err := VerifyAny(keys, read("checksums.txt"), read("checksums.txt.sig")); err != nil {
+		t.Fatalf("checksums.txt.sig: %v", err)
+	}
+	m, err := CheckManifest(keys, read("manifest.json"), read("manifest.json.sig"))
+	if err != nil {
+		t.Fatalf("manifest.json: %v", err)
+	}
+	if m.Version != version {
+		t.Fatalf("manifest is for %s, not %s", m.Version, version)
+	}
+	if v, err := CheckPointer(read("latest.json")); err != nil || v != version {
+		t.Fatalf("latest.json: %q, %v", v, err)
+	}
+	for _, f := range m.Files {
+		if f.Name == "checksums.txt" || f.Name == "checksums.txt.sig" {
+			continue
+		}
+		data := read(f.Name)
+		sum := sha256.Sum256(data)
+		if hex.EncodeToString(sum[:]) != f.SHA256 || int64(len(data)) != f.Size {
+			t.Errorf("%s does not match the manifest", f.Name)
+		}
+	}
+	if len(m.Files) != 8 {
+		t.Errorf("the manifest lists %d files, want 6 archives, checksums.txt and its signature", len(m.Files))
+	}
+}
+
+// If Flockdeck rotates its release key, a release lens signs with the old one is refused by every
+// Flockdeck that has the new one. This is what says so, before a release is made.
+func TestLensEmbedsTheKeysFlockdeckTrusts(t *testing.T) {
+	want := strings.Fields(os.Getenv("LENS_TRUSTED_KEYS"))
+	if len(want) == 0 {
+		t.Skip("LENS_TRUSTED_KEYS is not set")
+	}
+	var got []string
+	for _, k := range TrustedKeys() {
+		got = append(got, base64.StdEncoding.EncodeToString(k))
+	}
+	sort.Strings(got)
+	sort.Strings(want)
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("Flockdeck trusts %v but lens embeds %v: update PRIMARY_PUBLIC_KEY and STANDBY_PUBLIC_KEY in packaging/release.py", got, want)
+	}
+}

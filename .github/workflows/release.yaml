@@ -1,60 +1,198 @@
 name: release
 
-# Push a tag like v0.2.0. It runs all of ci.yaml, builds the program on every platform with the
-# tag as its version, and drafts a GitHub release holding the archives and their checksums.
-# Nothing is published: you read the draft and press the button.
+# Releasing works the way Flockdeck's does (see docs/releasing.md): push a tag like v0.2.0.
+# The release is tested, built on every platform, signed with Flockdeck's release key, published
+# on GitHub, and then put on dl.flockdeck.ai under lens/, where Flockdeck downloads it from.
+# Pushing the tag is the approval: tags cannot be moved or deleted once pushed (a ruleset in
+# terrawost), and the signing key and the bucket's credentials are in the `release` environment,
+# which only a v* tag may deploy to.
+#
+# A run can be repeated, from the tag, with workflow_dispatch: to finish a release whose run
+# stopped part way. Files already on the CDN under a version are never replaced.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release again, such as v0.2.0. Run this from that tag.
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  test:
     uses: ./.github/workflows/ci.yaml
 
   version:
     runs-on: ubuntu-latest
     outputs:
-      value: ${{ steps.v.outputs.value }}
+      tag: ${{ steps.v.outputs.tag }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
       - id: v
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          if ! [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "tag ${tag} is not vMAJOR.MINOR.PATCH"
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::tag ${TAG} is not vMAJOR.MINOR.PATCH, or vMAJOR.MINOR.PATCH-rc.N for a candidate"
             exit 1
           fi
-          echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
+          # Release notes are written before the tag, in the commit the tag points at. A
+          # candidate (v0.2.0-rc.1) needs none.
+          if [[ "${TAG}" != *-rc.* ]] && [ ! -f "docs/releases/${TAG}.md" ]; then
+            echo "::error::docs/releases/${TAG}.md does not exist; write the release notes and tag again"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: [validate, version]
+    needs: [test, version]
     uses: ./.github/workflows/build.yaml
     with:
-      version: ${{ needs.version.outputs.value }}
+      tag: ${{ needs.version.outputs.tag }}
       retention-days: 30
 
+  # One release at a time, queued rather than cancelled: a release stopped part way is published
+  # on GitHub and missing from the CDN. The tests still run side by side; only publishing takes
+  # turns. The job runs in the release environment, which holds the signing key and the bucket's
+  # credentials. Kept as repository secrets, a workflow run on any branch could read them.
   release:
-    needs: build
+    needs: [test, build, version]
     runs-on: ubuntu-latest
+    environment: release
+    concurrency:
+      group: release
+      cancel-in-progress: false
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+          # Nothing here pushes; gh takes its token from GH_TOKEN.
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+
+      # Every platform's build job uploaded its own archive; merged here into one directory.
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          pattern: lens_*
+          path: dist
           merge-multiple: true
-      - name: Checksums
+
+      - name: Checksum the merged release
         run: |
-          cd artifacts
-          ls -l
-          sha256sum lens_* > checksums.txt
-          cat checksums.txt
-      - name: Draft the release
+          uv run python packaging/release.py sums --out dist
+          ls -l dist
+
+      # checksums.txt and the release's manifest are signed with Flockdeck's release key, whose
+      # public half every Flockdeck carries, so that what it downloads can be trusted without
+      # trusting where it came from. So the release is signed before it is published anywhere,
+      # and a missing or wrong key stops the run before GitHub has a release Flockdeck would
+      # refuse. `verify` then checks the result the way Flockdeck will.
+      - name: Sign
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LENS_SIGNING_KEY: ${{ secrets.LENS_SIGNING_KEY }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" artifacts/* \
-            --repo "${GITHUB_REPOSITORY}" --draft --title "${GITHUB_REF_NAME}" \
-            --notes "Unsigned builds. Check each file against checksums.txt."
+          notes=()
+          if [ -f "docs/releases/${TAG}.md" ]; then notes=(--notes "docs/releases/${TAG}.md"); fi
+          uv run python packaging/release.py sign --version "${TAG}" --out dist "${notes[@]}"
+          uv run python packaging/release.py verify --version "${TAG}" --out dist
+          ls -l dist
+
+      # GitHub first, on purpose: whatever happens below, this has made a release, one that is
+      # only missing from the CDN. A pre-release is marked as one and is never the latest.
+      # A release older than the newest one stays off "latest". Only GitHub's answer that there
+      # is no such release counts as there being none; any other failure to ask stops the run.
+      - name: Publish on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "${TAG}" in *-*) pre="--prerelease" ;; esac
+          notes=(--generate-notes)
+          if [ -f "docs/releases/${TAG}.md" ]; then notes=(--notes-file "docs/releases/${TAG}.md"); fi
+          latest=""
+          if current=$(gh release view --json tagName --jq .tagName 2> "${RUNNER_TEMP}/gh.err"); then
+            :
+          elif grep -Eq 'release not found|HTTP 404' "${RUNNER_TEMP}/gh.err"; then
+            current=""
+          else
+            cat "${RUNNER_TEMP}/gh.err" >&2
+            echo "::error::could not ask GitHub for its latest release, so whether ${TAG} may become it is not known; nothing has been published"
+            exit 1
+          fi
+          if [ -z "${pre}" ] && [ -n "${current}" ] && [ "${current}" != "${TAG}" ] &&
+            [ "$(printf '%s\n' "${current}" "${TAG}" | sort -V | tail -n 1)" != "${TAG}" ]; then
+            echo "${current} is newer than ${TAG}, and stays GitHub's latest release"
+            latest="--latest=false"
+          fi
+          files=()
+          for f in dist/*; do
+            [ "${f##*/}" = latest.json ] || files+=("$f")
+          done
+          if gh release view "${TAG}" --json tagName > /dev/null 2> "${RUNNER_TEMP}/gh.err"; then
+            gh release upload "${TAG}" "${files[@]}" --clobber
+          elif grep -Eq 'release not found|HTTP 404' "${RUNNER_TEMP}/gh.err"; then
+            gh release create "${TAG}" "${files[@]}" --title "${TAG}" "${notes[@]}" ${pre} ${latest}
+          else
+            cat "${RUNNER_TEMP}/gh.err" >&2
+            echo "::error::could not ask GitHub whether ${TAG} is released already, so it has been neither created nor added to"
+            exit 1
+          fi
+          # gh has not always carried --latest=false through; say it again through the API, and
+          # put the latest back if it moved.
+          if [ -n "${latest}" ]; then
+            id=$(gh release view "${TAG}" --json databaseId --jq .databaseId)
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" -f make_latest=false > /dev/null
+            now=$(gh release view --json tagName --jq .tagName)
+            if [ "${now}" != "${current}" ]; then
+              id=$(gh release view "${current}" --json databaseId --jq .databaseId)
+              gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" -f make_latest=true > /dev/null
+            fi
+          fi
+
+      # From here the release goes to dl.flockdeck.ai. Every secret it needs is checked before any
+      # of it runs, and all the missing ones are named at once.
+      - name: Check the download site's secrets
+        env:
+          DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
+          DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
+          DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
+          DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
+        run: |
+          missing=""
+          for name in DO_SPACES_KEY DO_SPACES_SECRET DO_SPACES_BUCKET DO_SPACES_REGION; do
+            [ -n "$(printenv "${name}" || true)" ] || missing="${missing} ${name}"
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::${TAG} is published on GitHub, but cannot go to dl.flockdeck.ai until these secrets are set in the release environment:${missing}. See docs/releasing.md"
+            exit 1
+          fi
+
+      # The script says why its order is what it is. It is read from this workflow's own commit,
+      # not the tag's: a release run again from an older tag would otherwise use an older script,
+      # one from before it learned not to move latest back to an older release.
+      - name: Publish to dl.flockdeck.ai
+        env:
+          DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
+          DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
+          DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
+          DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
+        run: |
+          if ! git show "${GITHUB_SHA}:packaging/publish-downloads.sh" > "${RUNNER_TEMP}/publish-downloads.sh"; then
+            echo "::error::${TAG} is published on GitHub, but the publish script could not be read from ${GITHUB_SHA}"
+            exit 1
+          fi
+          sh "${RUNNER_TEMP}/publish-downloads.sh" "${TAG}" dist

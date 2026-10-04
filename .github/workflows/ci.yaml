@@ -44,6 +44,8 @@ jobs:
           done
       - name: Workflows
         run: uvx --from actionlint-py actionlint
+      - name: Shell scripts
+        run: shellcheck packaging/publish-downloads.sh
 
   docs:
     name: docs (diagrams render, links resolve)
@@ -116,17 +118,58 @@ jobs:
           uv export --frozen --no-dev --no-hashes --no-emit-project -o runtime-requirements.txt
           uvx pip-audit --strict --no-deps --disable-pip -r runtime-requirements.txt
 
+  # The release files are checked by Flockdeck, not by this repository, so they are judged by
+  # Flockdeck's own code: a release made by packaging/release.py is run through the updater's
+  # signature, manifest and pointer checks at Flockdeck's current main, and the keys lens embeds
+  # are compared with the ones Flockdeck trusts. If Flockdeck changes either, this fails here,
+  # before a release is made that every Flockdeck would refuse.
+  flockdeck-compat:
+    name: accepted by Flockdeck's updater checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Flockdeck/flockdeck
+          path: flockdeck
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: flockdeck/go.mod
+          cache-dependency-path: flockdeck/go.sum
+      - name: Make a signed release with a throwaway key
+        run: |
+          pub="$(uv run python packaging/fake_release.py "${RUNNER_TEMP}/release" --version v0.3.0)"
+          keys="$(uv run python packaging/release.py keys | paste -sd ' ' -)"
+          {
+            echo "LENS_RELEASE_DIR=${RUNNER_TEMP}/release"
+            echo "LENS_VERSION=v0.3.0"
+            echo "LENS_TEST_PUBKEY=${pub}"
+            echo "LENS_TRUSTED_KEYS=${keys}"
+          } >> "$GITHUB_ENV"
+      - name: Run Flockdeck's own checks over it
+        run: |
+          cp packaging/flockdeck_compat_test.go.txt flockdeck/internal/selfupdate/lens_release_test.go
+          cd flockdeck
+          go test ./internal/selfupdate -run 'TestLens' -count=1 -v
+
   binaries:
     name: binaries
     uses: ./.github/workflows/build.yaml
     with:
-      version: 0.0.0-ci
+      tag: v0.0.0-ci
 
   # One name to require in branch protection.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [static, docs, test, audit, binaries]
+    needs: [static, docs, test, audit, flockdeck-compat, binaries]
     runs-on: ubuntu-latest
     steps:
       - name: Everything passed

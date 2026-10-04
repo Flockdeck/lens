@@ -84,7 +84,7 @@ this stays on the machine, and lens keeps to it:
 ### Run it
 
 Download the archive for your platform from the
-[releases](https://github.com/Flockdeck/lens/releases) (`lens_<version>_<os>_<arch>`,
+[releases](https://github.com/Flockdeck/lens/releases) (`lens_<tag>_<os>_<arch>`, such as `lens_v0.1.0_linux_amd64.tar.gz`,
 for Windows, macOS and Linux on amd64 and arm64), unpack it and run the program:
 
 ```sh
@@ -247,11 +247,16 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
   with a coverage floor of 90 percent (line and branch) on Linux. One audits the pinned runtime
   dependencies for known advisories. The last builds and smoke-tests the program on all six
   targets. `ci-ok` is the single check to require before merging.
-- **Release** (`release.yaml`): pushing a tag like `v0.2.0` runs all of CI, builds the program
-  with that version through the same `build.yaml` CI uses, and drafts a GitHub release with the
-  archives and `checksums.txt`. Nothing is published until you do it. Builds are unsigned.
-  Windows on arm64 is allowed to fail without blocking, since not every dependency is guaranteed
-  to have wheels for it (so far it has not failed).
+- **Release** (`release.yaml`) follows Flockdeck's own process, described in
+  [docs/releasing.md](docs/releasing.md). Pushing a tag like `v0.2.0` runs all of CI, builds the
+  program on six platforms through the same `build.yaml` CI uses, signs the release with Flockdeck's
+  release key, publishes it on GitHub, and then uploads it to `https://dl.flockdeck.ai/lens/`, the
+  CDN Flockdeck downloads its own updates from. `packaging/release.py` and
+  `packaging/publish-downloads.sh` are Flockdeck's `cmd/release` and `scripts/publish-downloads.sh`
+  for this program; a `flockdeck-compat` job runs a lens release through Flockdeck's own updater
+  checks on every CI run. The one-time setup (the `release` environment and the CDN credentials)
+  is done in terrawost, not here. Builds are not code-signed. Windows on arm64 is allowed to fail
+  without blocking CI, but a release needs all six archives.
 - There is no deployment: this stays on your machine.
 
 ### Decisions I would talk about
