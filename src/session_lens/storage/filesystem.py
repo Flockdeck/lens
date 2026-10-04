@@ -25,10 +25,24 @@ class FilesystemStore:
 
     def __init__(self, root: Path | str) -> None:
         self._root = Path(root)
+        self._real: Path | None = None
 
     @property
     def root(self) -> Path:
         return self._root
+
+    def _real_root(self) -> Path:
+        """The root as the operating system spells it. It is created first: on Windows an
+        existing directory resolves to its long name (runneradmin) and one that does not exist
+        yet keeps its short one (RUNNER~1), so resolving a key under a root that appears
+        halfway through would compare two spellings of the same place."""
+        if self._real is None:
+            try:
+                self._root.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass  # unusable: the operation that needed it reports that
+            self._real = self._root.resolve()
+        return self._real
 
     def _path(self, key: str) -> Path:
         if not key or "\x00" in key or "\\" in key or ":" in key:
@@ -42,14 +56,14 @@ class FilesystemStore:
             or any(p in ("", ".", "..") for p in parts)
         ):
             raise InvalidKey("invalid key")
-        root = self._root.resolve()
+        root = self._real_root()
         path = root.joinpath(*parts).resolve()
         if path == root or not path.is_relative_to(root):
             raise InvalidKey("key escapes the store root")
         return path
 
     def _mkdirs(self, directory: Path) -> None:
-        root = self._root.resolve()
+        root = self._real_root()
         missing = []
         d = directory
         while d != root and not d.exists():
@@ -97,7 +111,7 @@ class FilesystemStore:
         path = self._path(key)
         with contextlib.suppress(FileNotFoundError):
             path.unlink()
-        root = self._root.resolve()
+        root = self._real_root()
         parent = path.parent
         while parent != root and parent.is_relative_to(root):
             try:

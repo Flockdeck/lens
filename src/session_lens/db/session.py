@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -78,24 +76,6 @@ def get_engine() -> AsyncEngine:
 @lru_cache
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return make_sessionmaker(get_engine())
-
-
-@asynccontextmanager
-async def session_scope() -> AsyncIterator[AsyncSession]:
-    """One session, committed on success and rolled back on error."""
-    async with get_sessionmaker()() as session:
-        try:
-            yield session
-            await session.commit()
-        except BaseException:
-            await session.rollback()
-            raise
-
-
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency: a session per request. The caller commits."""
-    async with get_sessionmaker()() as session:
-        yield session
 
 
 async def dispose_engine() -> None:

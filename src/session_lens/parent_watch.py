@@ -33,6 +33,8 @@ def same_program(parent_image: str | None, own_image: str) -> bool:
 
 
 def _windows_parent_image(pid: int) -> str | None:
+    if sys.platform != "win32":
+        return None
     import ctypes
     from ctypes import wintypes
 
@@ -52,6 +54,8 @@ def _windows_parent_image(pid: int) -> str | None:
 
 
 def _windows_wait_for_exit(pid: int) -> None:
+    if sys.platform != "win32":
+        return
     import ctypes
     from ctypes import wintypes
 
