@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from session_lens.db.models import (
+from lens.db.models import (
     Batch,
     BatchItem,
     BatchStatus,
@@ -12,9 +12,9 @@ from session_lens.db.models import (
     Session,
     utcnow,
 )
-from session_lens.worker.cleanup import run_cleanup
-from session_lens.worker.loop import claim_items
-from session_lens.worker.processor import ItemProcessor
+from lens.worker.cleanup import run_cleanup
+from lens.worker.loop import claim_items
+from lens.worker.processor import ItemProcessor
 from tests.worker.helpers import FakeEnricher, get_item, make_batch, recording
 
 

@@ -11,11 +11,11 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.app import create_app
-from session_lens.api.deps import get_store_provider
-from session_lens.config import Settings
-from session_lens.db.models import AppSetting
-from session_lens.storage.memory import InMemoryStore
+from lens.api.app import create_app
+from lens.api.deps import get_store_provider
+from lens.config import Settings
+from lens.db.models import AppSetting
+from lens.storage.memory import InMemoryStore
 
 SECRET = "sk-ant-test-0123456789abcdef"
 

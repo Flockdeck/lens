@@ -1,0 +1,81 @@
+/* Flockdeck's look, as the flockdeck.ai site and the Flockdeck phone client (flockdeck-remote,
+ * web/app/app.css) wear it. The fonts, the :root tokens and the wash behind the page are copied from
+ * there; the block marked "added" is the only part lens adds.
+ *
+ * Like the site and the client it commits to the dark ground agents are run on, so there is no light
+ * variant. Green, amber and red are spent only on states the app knows, and every status is a glyph
+ * and a word as well as a colour. The fonts are served from this origin, never from a font service,
+ * so a page view tells nobody anything. Both are SIL OFL 1.1; the licences are beside the files. */
+
+@font-face {
+  font-family: "Archivo";
+  src: url("../fonts/archivo.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  --surface:   #0F1418;
+  --raised:    #161C21;
+  --sunken:    #0A0E11;
+
+  --edge-soft: #1F272D;
+  --edge:      #2C363D;
+  --edge-hard: #5D6B72;
+
+  --text:      #E6EDF1;
+  --muted:     #93A1A9;
+
+  --accent:        #4FD1DB;
+  --accent-strong: #7BE0E8;
+  --accent-subtle: #0E2B2E;
+  --accent-edge:   #1F4E53;
+  --on-accent:     #0F1418;
+
+  --working:        #64C97F;
+  --waiting:        #E2B341;
+  --waiting-subtle: #2A2110;
+  --waiting-edge:   #4E3D18;
+  --exited:         #F0776A;
+  --exited-subtle:  #2C1512;
+  --exited-edge:    #58251F;
+  --idle:           #738087;
+
+  /* added: the green's tinted fill and edge, from Flockdeck's design/color.css (dark values) */
+  --working-subtle: #10261A;
+  --working-edge:   #24492F;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 0 rgba(255,255,255,.03), 0 24px 60px -28px rgba(0,0,0,.9);
+
+  --display: Archivo, "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, sans-serif;
+  --body:    Archivo, "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, Consolas, "SF Mono", monospace;
+
+  --tap: 44px;
+}
+
+/* The site's wash behind the fold: the accent, and a breath of the amber, so the ground is not flat
+   without anything on it having to be loud. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20% -10% auto -10%;
+  height: 70vh;
+  background:
+    radial-gradient(60% 55% at 22% 0%, rgba(79,209,219,.12), transparent 70%),
+    radial-gradient(45% 45% at 82% 8%, rgba(226,179,65,.07), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}

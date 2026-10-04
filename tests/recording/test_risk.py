@@ -2,8 +2,8 @@ from collections.abc import Callable
 
 import pytest
 
-from session_lens.recording import Event, analyze, parse
-from session_lens.recording.risk import risks_for_call, secret_file_severity
+from lens.recording import Event, analyze, parse
+from lens.recording.risk import risks_for_call, secret_file_severity
 from tests.recording.conftest import make_line, to_bytes
 
 Fx = Callable[[str], bytes]

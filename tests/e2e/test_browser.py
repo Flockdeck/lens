@@ -19,11 +19,11 @@ import httpx
 import pytest
 import uvicorn
 
-from session_lens.api.app import create_app
-from session_lens.db.session import make_engine, make_sessionmaker
-from session_lens.runtime_settings import DynamicEnricher
-from session_lens.storage.base import build_store
-from session_lens.worker.loop import run_worker
+from lens.api.app import create_app
+from lens.db.session import make_engine, make_sessionmaker
+from lens.runtime_settings import DynamicEnricher
+from lens.storage.base import build_store
+from lens.worker.loop import run_worker
 from tests.dbutil import clear_tables
 from tests.e2e.conftest import make_settings, recording
 
@@ -200,8 +200,13 @@ def test_the_whole_flow_in_a_browser(
     page.wait_for_url("**/#/batches/*")
 
     # --- the batch runs and the page shows it, glyph and word --------------------------------
+    # The retry button appears as soon as one item has failed, while others may still be running,
+    # so wait for the batch itself to settle: three done and one failed.
     page.wait_for_selector("button:has-text('Retry failed (1)')")
-    page.wait_for_selector(".badge-failed")
+    page.wait_for_function(
+        "document.querySelectorAll('tbody .badge-done').length === 3"
+        " && document.querySelectorAll('tbody .badge-failed').length === 1"
+    )
     assert page.locator("tbody .badge-done").count() == 3
     assert page.locator("tbody .badge-failed").count() == 1
     assert "UnsupportedVersion" in page.inner_text("tbody")
@@ -211,8 +216,9 @@ def test_the_whole_flow_in_a_browser(
 
     # --- browse and filter -------------------------------------------------------------------
     page.click("text=View sessions")
-    page.wait_for_selector("tbody tr")
-    assert page.locator("tbody tr").count() == 3
+    # The batch page being left has a table too, so wait for the new page and for its rows.
+    page.wait_for_url("**/#/sessions*")
+    page.wait_for_function("document.querySelectorAll('tbody tr').length === 3")
     page.locator("select").filter(has=page.locator("option[value=stuck]")).select_option("stuck")
     page.click("button:has-text('Apply')")
     page.wait_for_function("document.querySelectorAll('tbody tr').length === 1")
@@ -245,8 +251,8 @@ def test_the_whole_flow_in_a_browser(
 
     # --- insights --------------------------------------------------------------------------------
     page.click("#nav >> text=Insights")
-    page.wait_for_selector("svg.chart")
-    assert page.locator("svg.chart").count() >= 2
+    # Each section draws its own charts when its data arrives, so wait for all of them.
+    page.wait_for_function("document.querySelectorAll('svg.chart').length >= 2")
     assert page.get_by_role("heading", name="Compare").count() == 1
 
     # nothing left the machine, and the page never complained
@@ -282,25 +288,45 @@ def test_the_keyboard_reaches_everything_and_the_focus_is_visible(
 
     open_app(page, live_app)
 
-    # the skip link shows when focused, and Enter moves the focus to the main area
-    page.focus(".skip")
-    assert page.evaluate("document.querySelector('.skip').getBoundingClientRect().top") >= 0
-    page.keyboard.press("Enter")
+    # The page puts the focus on the main area when it loads. From there, only real key presses
+    # move it: a focus() call from the test is not keyboard focus, and browsers (rightly) do not
+    # draw the focus ring for it, which made this test depend on the browser's heuristics.
     assert page.evaluate("document.activeElement.id") == "main"
 
-    # Tab walks the header in order, every stop draws the accent ring, and Enter follows a link
-    page.focus(".brand")
-    stops = []
-    for _ in range(3):
-        page.keyboard.press("Tab")
-        stops.append(page.evaluate("document.activeElement.textContent.trim()"))
+    def focused() -> tuple[str, list[str]]:
+        text = page.evaluate("document.activeElement.textContent.trim()")
         ring = page.evaluate(
             "(() => { const s = getComputedStyle(document.activeElement);"
             " return [s.outlineStyle, s.outlineWidth, s.outlineColor]; })()"
         )
-        assert ring == ["solid", "2px", "rgb(79, 209, 219)"], ring
-    assert stops == ["Submit", "Sessions", "Insights"]
-    page.focus("#nav a[href='#/sessions']")
+        return text, ring
+
+    # Shift+Tab walks the header backwards. Every navigation link draws the accent ring.
+    stops = []
+    for _ in range(4):
+        page.keyboard.press("Shift+Tab")
+        text, ring = focused()
+        assert ring == ["solid", "2px", "rgb(79, 209, 219)"], (text, ring)
+        stops.append(text)
+    assert stops == ["Settings", "Insights", "Sessions", "Submit"]
+    page.keyboard.press("Shift+Tab")
+    assert focused()[0] == "lens"  # the brand link
+    page.keyboard.press("Shift+Tab")
+    assert focused()[0] == "Skip to content"
+    # the skip link is visible when focused, and Enter moves the focus to the main area
+    assert page.evaluate("document.querySelector('.skip').getBoundingClientRect().top") >= 0
+    before = page.url
+    page.keyboard.press("Enter")
+    assert page.evaluate("document.activeElement.id") == "main"
+    # ...without changing the address: the hash is the route, and #main is not one. It used to
+    # send the router to its default page, wherever the person was.
+    page.wait_for_timeout(300)
+    assert page.url == before and "#main" not in page.url
+
+    # Enter follows a link: back up to Sessions and press it
+    for _ in range(3):
+        page.keyboard.press("Shift+Tab")
+    assert focused()[0] == "Sessions"
     page.keyboard.press("Enter")
     page.wait_for_url("**/#/sessions")
 
@@ -415,7 +441,7 @@ def test_the_session_page_is_tabbed_and_says_what_the_llm_wrote(
     # Only the selected panel is on screen, and it starts on the LLM's analysis.
     assert page.locator("[role=tabpanel]:not([hidden])").count() == 1
     panel = page.locator(".llm-panel").first
-    assert (panel.locator(".origin-llm").text_content() or "").strip().endswith("session-lens LLM")
+    assert (panel.locator(".origin-llm").text_content() or "").strip().endswith("lens LLM")
     for label in ("Frustration", "Analysis model", "Tokens in", "Tokens out", "Prompt version"):
         assert panel.get_by_role("button", name=f"What is {label}?").count() == 1, label
     assert page.get_by_role("button", name="What is Duration?").count() == 0  # on the Metrics tab
@@ -474,5 +500,25 @@ def test_vague_terms_explain_themselves_to_mouse_keyboard_and_touch(
     page.get_by_role("button", name="What is Analysis model?").click()
     assert page.locator(".info-note:visible", has_text="not the model the agent used").count() == 1
     assert page.get_by_role("button", name="What is Completeness?").count() == 1
-    page.get_by_role("button", name="What is session-lens LLM?").click()
+    page.get_by_role("button", name="What is lens LLM?").click()
     assert page.locator(".info-note:visible", has_text="can change when you re-enrich").count() == 1
+
+
+def test_the_skip_link_keeps_the_person_on_the_page_they_are_on(
+    browser: sync_api.Browser, live_app: LiveApp
+) -> None:
+    live_app.wait_idle(live_app.upload(("run.jsonl", recording("claude_full", "skip"))))
+    page = browser.new_context(viewport={"width": 1280, "height": 900}).new_page()
+    page.set_default_timeout(20000)
+    open_app(page, live_app)
+    page.goto(live_app.url + "/#/sessions")
+    page.click("table a")
+    page.wait_for_selector("[role=tab]")
+    here = page.url
+
+    page.focus(".skip")
+    page.click(".skip", force=True)  # a click, as well as the Enter key above
+    page.wait_for_timeout(300)
+    assert page.url == here  # still the same session, not the Submit page
+    assert page.locator("[role=tab]").count() > 0
+    assert page.evaluate("document.activeElement.id") == "main"

@@ -20,12 +20,12 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from session_lens.api.app import create_app
-from session_lens.config import Settings
-from session_lens.db.session import make_engine, make_sessionmaker
-from session_lens.enrich.base import Enricher, build_enricher
-from session_lens.storage.base import RecordingStore, build_store
-from session_lens.worker.loop import run_worker
+from lens.api.app import create_app
+from lens.config import Settings
+from lens.db.session import make_engine, make_sessionmaker
+from lens.enrich.base import Enricher, build_enricher
+from lens.storage.base import RecordingStore, build_store
+from lens.worker.loop import run_worker
 from tests.dbutil import clear_tables
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[1] / "fixtures"

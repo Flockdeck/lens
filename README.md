@@ -31,9 +31,9 @@ really talk about the code in a lot of detail at length. Send whatever you
 are comfortable with! If you send it as a github repo, that's usually the easiest
 way for them to look at it.
 
-## My idea: session-lens
+## My idea: lens
 
-**session-lens** analyses recordings of coding-agent sessions. It ingests batches of
+**lens** analyses recordings of coding-agent sessions. It ingests batches of
 [Flockdeck](https://github.com/Flockdeck/flockdeck) pane recordings, computes metrics from each
 one, enriches it (summary, category, outcome, frustration, whether the model suited the task,
 where the agent got stuck), stores the results in a local SQLite database and lets a client submit
@@ -49,7 +49,7 @@ can talk about both ends of the data.
 ### Local-first by design
 
 A recording contains prompts, file contents and command output. Flockdeck's own policy is that
-this stays on the machine, and session-lens keeps to it:
+this stays on the machine, and lens keeps to it:
 
 - **By default nothing is uploaded.** The default enricher is a deterministic mock, and the optional
   local one talks to an [Ollama](https://ollama.com) server and refuses any URL that is not loopback;
@@ -84,28 +84,28 @@ this stays on the machine, and session-lens keeps to it:
 ### Run it
 
 Download the archive for your platform from the
-[releases](https://github.com/jmwri/yantra-test/releases) (`session-lens_<version>_<os>_<arch>`,
+[releases](https://github.com/Flockdeck/lens/releases) (`lens_<version>_<os>_<arch>`,
 for Windows, macOS and Linux on amd64 and arm64), unpack it and run the program:
 
 ```sh
-./session-lens serve --open        # session-lens.exe on Windows
+./lens serve --open        # lens.exe on Windows
 ```
 
 It prints its address (http://127.0.0.1:8000), opens it with `--open`, and stops on Ctrl+C. There is
 nothing to install, no database server and nothing to sign in to. One process is the whole service:
 the web UI, the API, the enrichment worker and the retention timer.
 
-Everything it keeps is in one folder: `%LOCALAPPDATA%\session-lens` on Windows,
-`~/Library/Application Support/session-lens` on macOS, `~/.local/share/session-lens` on Linux (set
+Everything it keeps is in one folder: `%LOCALAPPDATA%\lens` on Windows,
+`~/Library/Application Support/lens` on macOS, `~/.local/share/lens` on Linux (set
 `DATA_DIR` to move it). That is the SQLite database, the raw recordings under `recordings/`, and the
 log file. When its output is not a terminal (another program started it) it logs to
-`session-lens.log` there, rotated, instead of standard output, so a pipe nobody reads cannot stall
+`lens.log` there, rotated, instead of standard output, so a pipe nobody reads cannot stall
 it. If something kills the program from outside, the server behind it exits too.
 
 Settings come from the Settings page, or from environment variables / a `.env` file
-(`session-lens serve --help`, and `src/session_lens/config.py` for the list). To enrich with a local
+(`lens serve --help`, and `src/lens/config.py` for the list). To enrich with a local
 model: `ollama pull llama3.1:8b`, then choose Ollama in Settings. From source: `uv sync`, then
-`uv run session-lens serve --open`; `make check` runs lint, types and tests; `make binary` builds the
+`uv run lens serve --open`; `make check` runs lint, types and tests; `make binary` builds the
 program for this machine and `make smoke` runs it end to end.
 
 ### Input
@@ -198,7 +198,7 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
 - **Idempotency.** A session is keyed on its recording session id. Resubmitting identical
   content is free; a longer version of the same recording replaces the session and is
   re-enriched, so the list never shows duplicates.
-- **Retention.** The server runs cleanup in the background (and `session-lens cleanup` runs it by
+- **Retention.** The server runs cleanup in the background (and `lens cleanup` runs it by
   hand): raw files past `RAW_RETENTION_DAYS` are deleted and their rows marked expired (the UI then
   disables the event view and re-enrich), and finished batch records older than 90 days are
   pruned. Deleting a session removes its raw files too.
@@ -239,10 +239,20 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
 - **The built program** (`packaging/smoke.py`): for each platform's executable, the same flow
   over HTTP, plus: the Anthropic SDK is inside it (pointed at a dead local port, so nothing is
   sent), nothing is lost across a restart, and killing the launcher takes the server with it.
-- GitHub Actions runs ruff, `mypy --strict` and pytest on Linux and Windows, and builds and
-  smoke-tests the program. A release workflow builds it on native runners for all six targets
-  (Windows, macOS and Linux, amd64 and arm64) and drafts a GitHub release with checksums.
-  There is no deployment: this stays on your machine.
+- **CI** (`.github/workflows/ci.yaml`) runs on every push to `main`, every pull request and weekly.
+  One job checks the lockfile, ruff, `mypy --strict` once per platform (Linux, Windows, macOS,
+  since some code is platform specific) and the workflow files with actionlint. One renders every
+  Mermaid diagram in the docs and checks every relative link. The test job runs the whole suite,
+  browser tests included, on Linux, Windows and macOS with Python 3.12 and on Linux with 3.13,
+  with a coverage floor of 90 percent (line and branch) on Linux. One audits the pinned runtime
+  dependencies for known advisories. The last builds and smoke-tests the program on all six
+  targets. `ci-ok` is the single check to require before merging.
+- **Release** (`release.yaml`): pushing a tag like `v0.2.0` runs all of CI, builds the program
+  with that version through the same `build.yaml` CI uses, and drafts a GitHub release with the
+  archives and `checksums.txt`. Nothing is published until you do it. Builds are unsigned.
+  Windows on arm64 is allowed to fail without blocking, since not every dependency is guaranteed
+  to have wheels for it (so far it has not failed).
+- There is no deployment: this stays on your machine.
 
 ### Decisions I would talk about
 

@@ -8,10 +8,10 @@ import anthropic
 import httpx2
 import pytest
 
-from session_lens.config import Settings
-from session_lens.enrich import EnrichmentError, build_enricher
-from session_lens.enrich.anthropic import AnthropicEnricher
-from session_lens.enrich.prompt import PROMPT_VERSION
+from lens.config import Settings
+from lens.enrich import EnrichmentError, build_enricher
+from lens.enrich.anthropic import AnthropicEnricher
+from lens.enrich.prompt import PROMPT_VERSION
 
 GOOD: dict[str, Any] = {
     "summary": "Fixed a bug.",
@@ -246,7 +246,7 @@ def test_choosing_anthropic_without_a_key_stops_at_startup(key: str | None) -> N
 
 
 def test_the_default_needs_no_key_and_loads_no_sdk_client() -> None:
-    from session_lens.enrich.mock import MockEnricher
+    from lens.enrich.mock import MockEnricher
 
     assert Settings().enricher == "mock"
     assert not Settings().anthropic_api_key or not Settings().anthropic_api_key.get_secret_value()
@@ -266,7 +266,7 @@ def test_the_remote_choice_is_announced_once_without_the_key(
 async def test_the_prompt_asks_for_a_model_judgement_and_sends_the_model_name(
     make_analysis: Callable[..., Any],
 ) -> None:
-    from session_lens.enrich.prompt import SYSTEM_PROMPT, output_schema
+    from lens.enrich.prompt import SYSTEM_PROMPT, output_schema
 
     client = FakeClient(reply(json.dumps(GOOD)))
     await AnthropicEnricher(client, "claude-haiku-4-5").enrich(make_analysis(model="claude-opus-9"))

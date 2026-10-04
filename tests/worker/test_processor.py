@@ -4,7 +4,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import func, select, update
 
-from session_lens.db.models import (
+from lens.db.models import (
     BatchItem,
     BatchStatus,
     Enrichment,
@@ -13,8 +13,8 @@ from session_lens.db.models import (
     Session,
     utcnow,
 )
-from session_lens.worker.loop import claim_items
-from session_lens.worker.processor import ItemProcessor
+from lens.worker.loop import claim_items
+from lens.worker.processor import ItemProcessor
 from tests.worker.helpers import (
     FakeEnricher,
     get_batch,

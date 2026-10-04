@@ -1,7 +1,7 @@
 import pytest
 
-from session_lens import cli
-from session_lens.config import get_settings
+from lens import cli
+from lens.config import get_settings
 
 
 def run(*argv):

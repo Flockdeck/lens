@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
-from session_lens.recording import analyze, parse
-from session_lens.recording.digest import (
+from lens.recording import analyze, parse
+from lens.recording.digest import (
     FAILURE_CHARS,
     MAX_FAILURES,
     MAX_PROMPTS,

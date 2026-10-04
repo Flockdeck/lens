@@ -1,4 +1,4 @@
-"""`session-lens serve`: one process is the whole service, starting from nothing."""
+"""`lens serve`: one process is the whole service, starting from nothing."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import time
 
 import httpx
 
-from session_lens.api.app import create_app
-from session_lens.config import Settings
+from lens.api.app import create_app
+from lens.config import Settings
 from tests.e2e.conftest import recording
 
 
@@ -52,7 +52,7 @@ async def test_an_empty_data_directory_becomes_a_working_service(tmp_path: pathl
         assert body["counts"]["done"] == 1
         sessions = (await c.get("/sessions")).json()
         assert sessions["total"] == 1 and sessions["items"][0]["outcome"]
-    assert (data / "session-lens.db").exists()
+    assert (data / "lens.db").exists()
     assert any((data / "recordings").rglob("*.jsonl"))
 
 

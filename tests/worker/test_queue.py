@@ -4,9 +4,9 @@ import re
 import pytest
 from sqlalchemy import select, update
 
-from session_lens.db.models import BatchItem, BatchStatus, ItemStatus, RawRecording, Session, utcnow
-from session_lens.storage.base import RecordingExpired
-from session_lens.worker.queue import (
+from lens.db.models import BatchItem, BatchStatus, ItemStatus, RawRecording, Session, utcnow
+from lens.storage.base import RecordingExpired
+from lens.worker.queue import (
     BatchNotFound,
     cancel_batch,
     create_batch,

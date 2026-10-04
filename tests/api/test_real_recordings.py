@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.storage.memory import InMemoryStore
+from lens.storage.memory import InMemoryStore
 from tests.api.test_batches import files
 from tests.api.test_sessions import seed
 

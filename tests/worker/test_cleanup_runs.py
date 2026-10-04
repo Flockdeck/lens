@@ -3,9 +3,9 @@ from datetime import timedelta
 
 from sqlalchemy import select, update
 
-from session_lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
-from session_lens.worker import cleanup
-from session_lens.worker.cleanup import run_cleanup
+from lens.db.models import Batch, BatchItem, BatchStatus, ItemStatus, RawRecording, utcnow
+from lens.worker import cleanup
+from lens.worker.cleanup import run_cleanup
 from tests.worker.helpers import make_batch, recording
 
 

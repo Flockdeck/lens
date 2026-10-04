@@ -5,9 +5,9 @@ from __future__ import annotations
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from session_lens.config import Settings
-from session_lens.db.models import Base
-from session_lens.db.session import make_engine
+from lens.config import Settings
+from lens.db.models import Base
+from lens.db.session import make_engine
 
 
 def test_engine(database_url: str) -> AsyncEngine:

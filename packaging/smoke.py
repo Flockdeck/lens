@@ -1,7 +1,7 @@
 """Run a built binary and use it: start it with a fresh data directory, upload a recording,
 wait for the analysis, read it back, and stop it.
 
-    python packaging/smoke.py dist/session-lens[.exe] [--keep]
+    python packaging/smoke.py dist/lens[.exe] [--keep]
 
 stdlib only. Exit status 0 means it works. Used by CI for every platform the binary is built on.
 """
@@ -59,7 +59,22 @@ def check(ok: bool, what: str) -> None:
         raise SystemExit(1)
 
 
+DATA_DIRS: list[Path] = []
+
+
+def dump_logs() -> None:
+    """The server's log is what explains a failure seen from the outside."""
+    for data in DATA_DIRS:
+        for log in sorted(data.rglob("lens.log")):
+            lines = log.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+            print(f"--- last {len(lines)} lines of {log}")
+            for line in lines:
+                print(line[:300])
+            sys.stdout.flush()
+
+
 def start(binary: Path, port: int, data: Path, extra: dict[str, str]) -> subprocess.Popen[bytes]:
+    DATA_DIRS.append(data)
     env = {
         **os.environ,
         "DATA_DIR": str(data / "my data"),  # a space in the path, as real ones have
@@ -89,13 +104,24 @@ def wait_ready(proc: subprocess.Popen[bytes], base: str) -> None:
     check(False, "the binary became ready within 60 s")
 
 
-def stop(proc: subprocess.Popen[bytes]) -> None:
+def stop(proc: subprocess.Popen[bytes], port: int) -> None:
+    """Ask it to stop, then wait until nothing answers on its port. The launcher exiting is not
+    enough: on Windows the real server runs in a child process that can outlive it briefly, and a
+    restart on the same port would otherwise find the old one still answering."""
     proc.terminate()
     try:
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
         proc.kill()
         check(False, "it stopped when asked")
+    deadline = time.monotonic() + 40
+    while time.monotonic() < deadline:
+        with socket.socket() as s:
+            s.settimeout(1)
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return
+        time.sleep(0.3)
+    check(False, "nothing was left listening after it stopped")
 
 
 def upload_and_wait(base: str) -> tuple[dict[str, int], list[dict[str, object]]]:
@@ -114,7 +140,7 @@ def upload_and_wait(base: str) -> tuple[dict[str, int], list[dict[str, object]]]
 
 def phase_normal(binary: Path) -> None:
     print("--- the default setup", flush=True)
-    data, port = Path(tempfile.mkdtemp(prefix="session-lens-smoke-")), free_port()
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     started = time.monotonic()
     proc = start(binary, port, data, {})
@@ -122,7 +148,7 @@ def phase_normal(binary: Path) -> None:
         wait_ready(proc, base)
         check(True, f"ready in {time.monotonic() - started:.1f} s")
         status, page = call(base + "/")
-        check(status == 200 and b"session-lens" in page, "the web UI is served")
+        check(status == 200 and b"lens" in page, "the web UI is served")
         status, css = call(base + "/css/app.css")
         check(status == 200 and len(css) > 1000, "its stylesheet and fonts are inside the binary")
         status, cfg = call(base + "/config")
@@ -145,29 +171,27 @@ def phase_normal(binary: Path) -> None:
             check(False, "a request for another host name is refused")
         except urllib.error.HTTPError as err:
             check(err.code == 421, "a request for another host name is refused")
+        check((data / "my data" / "lens.db").exists(), "the database is in the data directory")
         check(
-            (data / "my data" / "session-lens.db").exists(), "the database is in the data directory"
-        )
-        check(
-            (data / "my data" / "session-lens.log").stat().st_size > 0,
+            (data / "my data" / "lens.log").stat().st_size > 0,
             "logs go to a file when stdout is a pipe",
         )
     finally:
-        stop(proc)
+        stop(proc, port)
     # Same data directory, new process: nothing is lost by stopping.
     proc = start(binary, port, data, {})
     try:
         wait_ready(proc, base)
         check(json.loads(call(base + "/sessions")[1])["total"] == 1, "it remembers after a restart")
     finally:
-        stop(proc)
+        stop(proc, port)
 
 
 def phase_remote_enricher_is_bundled(binary: Path) -> None:
     """Choose the Anthropic enricher with the SDK aimed at a port nothing listens on: it proves
     the SDK is inside the binary and gets as far as trying to connect, and nothing is sent."""
     print("--- the Anthropic enricher, offline", flush=True)
-    data, port = Path(tempfile.mkdtemp(prefix="session-lens-smoke-")), free_port()
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     extra = {
         "ENRICHER": "anthropic",
@@ -189,14 +213,14 @@ def phase_remote_enricher_is_bundled(binary: Path) -> None:
             f"the SDK is bundled and tried to connect ({error})",
         )
     finally:
-        stop(proc)
+        stop(proc, port)
 
 
 def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     """Something kills the program outright (Task Manager, or Flockdeck stopping it). The server
     behind the launcher must not be left running, holding the port and the database."""
     print("--- the program is killed from outside", flush=True)
-    data, port = Path(tempfile.mkdtemp(prefix="session-lens-smoke-")), free_port()
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     proc = start(binary, port, data, {})
     wait_ready(proc, base)
@@ -212,11 +236,19 @@ def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     check(False, "the server stopped listening after its launcher was killed")
 
 
-def main() -> int:
-    binary = Path(sys.argv[1]).resolve()
+def run(binary: Path) -> None:
     phase_normal(binary)
     phase_remote_enricher_is_bundled(binary)
     phase_killed_launcher_takes_the_server_with_it(binary)
+
+
+def main() -> int:
+    binary = Path(sys.argv[1]).resolve()
+    try:
+        run(binary)
+    except BaseException:
+        dump_logs()
+        raise
     print("smoke test passed")
     return 0
 

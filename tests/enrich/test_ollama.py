@@ -8,10 +8,10 @@ from typing import Any
 import httpx
 import pytest
 
-from session_lens.config import Settings
-from session_lens.enrich import EnrichmentError, build_enricher
-from session_lens.enrich.ollama import OllamaEnricher, require_local_url
-from session_lens.enrich.prompt import PROMPT_VERSION
+from lens.config import Settings
+from lens.enrich import EnrichmentError, build_enricher
+from lens.enrich.ollama import OllamaEnricher, require_local_url
+from lens.enrich.prompt import PROMPT_VERSION
 
 GOOD: dict[str, Any] = {
     "summary": "Fixed a bug.",
@@ -263,7 +263,7 @@ def test_build_enricher_selects_ollama_and_passes_settings_through() -> None:
 
 
 def test_build_enricher_defaults_to_the_mock() -> None:
-    from session_lens.enrich.mock import MockEnricher
+    from lens.enrich.mock import MockEnricher
 
     assert isinstance(build_enricher(Settings()), MockEnricher)
 

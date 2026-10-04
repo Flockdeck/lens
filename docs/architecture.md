@@ -1,8 +1,8 @@
-# session-lens architecture
+# lens architecture
 
-session-lens reads recordings of coding-agent sessions, works out what happened in each one, asks a language model to judge the parts that need judging, and shows the result in a web page. It runs as one program on one machine. This document describes the parts of that program (section 1 to 3), how data is stored (section 4), and how the program behaves while it runs (section 5 to 8).
+lens reads recordings of coding-agent sessions, works out what happened in each one, asks a language model to judge the parts that need judging, and shows the result in a web page. It runs as one program on one machine. This document describes the parts of that program (section 1 to 3), how data is stored (section 4), and how the program behaves while it runs (section 5 to 8).
 
-The diagrams are Mermaid, so GitHub draws them. Where a diagram simplifies, the text under it says what was left out. File paths are relative to `src/session_lens/`.
+The diagrams are Mermaid, so GitHub draws them. Where a diagram simplifies, the text under it says what was left out. File paths are relative to `src/lens/`.
 
 ## 1. System context
 
@@ -13,16 +13,16 @@ flowchart LR
     person([Person])
     fd[Flockdeck<br/>writes recordings]
     subgraph machine[One machine]
-        browser[Web browser<br/>session-lens UI]
-        subgraph proc[session-lens process]
+        browser[Web browser<br/>lens UI]
+        subgraph proc[lens process]
             server[HTTP server<br/>API and UI files]
             worker[Worker<br/>analysis and enrichment]
             server --- worker
         end
         subgraph data[Data folder]
-            db[(session-lens.db<br/>SQLite)]
+            db[(lens.db<br/>SQLite)]
             raw[recordings/<br/>raw JSONL files]
-            log[session-lens.log]
+            log[lens.log]
         end
         ollama[Ollama<br/>local model, optional]
     end
@@ -364,7 +364,7 @@ One process, one event loop, four kinds of long-lived activity.
 
 ```mermaid
 flowchart TB
-    subgraph proc[session-lens process]
+    subgraph proc[lens process]
         subgraph loop[asyncio event loop]
             uv[uvicorn server<br/>accepts requests]
             wk[worker task<br/>run_worker]
@@ -519,7 +519,7 @@ sequenceDiagram
     participant W as worker task
     participant D as SQLite
 
-    P->>C: session-lens serve
+    P->>C: lens serve
     C->>C: load Settings, set up logging<br/>(file if stdout is not a terminal)
     C->>C: print address and data directory
     C->>S: build Server(create_app(run_worker=True))
@@ -850,16 +850,16 @@ With the mock or Ollama enricher, nothing. Ollama's URL must be loopback; the ch
 
 ### 8.3 Logging
 
-Logs are JSON lines holding ids, counts and timings, never recording content, file names or query strings. In a terminal they go to the terminal. When standard output is not a terminal (another program launched the server) they go to `session-lens.log` in the data folder, rotated at 5 MB with three backups, so a pipe nobody reads cannot freeze the server.
+Logs are JSON lines holding ids, counts and timings, never recording content, file names or query strings. In a terminal they go to the terminal. When standard output is not a terminal (another program launched the server) they go to `lens.log` in the data folder, rotated at 5 MB with three backups, so a pipe nobody reads cannot freeze the server.
 
 ### 8.4 Packaging and process control
 
 ```mermaid
 flowchart LR
-    src[source and tests] --> pyi[PyInstaller<br/>packaging/session-lens.spec]
-    pyi --> exe["session-lens(.exe)<br/>one file, about 25 MB:<br/>Python, dependencies,<br/>web UI files, migration"]
+    src[source and tests] --> pyi[PyInstaller<br/>packaging/lens.spec]
+    pyi --> exe["lens(.exe)<br/>one file, about 25 MB:<br/>Python, dependencies,<br/>web UI files, migration"]
     exe --> smoke[packaging/smoke.py<br/>starts it, uses it over HTTP]
-    smoke --> arch[session-lens_VERSION_OS_ARCH<br/>.tar.gz or .zip]
+    smoke --> arch[lens_VERSION_OS_ARCH<br/>.tar.gz or .zip]
     arch --> rel[GitHub release draft<br/>with checksums.txt]
 ```
 
@@ -879,7 +879,7 @@ The smoke test runs the built executable the way a person would: upload a record
 | Why does the UI never wait on the worker? | `db/session.py`, `api/deps.py` (`get_db`) |
 | What guards the local API? | `api/local.py`, `api/limits.py`, `api/uploads.py` |
 | What are the tables? | `db/models.py`, `migrations/versions/0001_initial_schema.py` |
-| How is the executable built and checked? | `packaging/session-lens.spec`, `packaging/smoke.py`, `.github/workflows/release.yaml` |
+| How is the executable built and checked? | `packaging/lens.spec`, `packaging/smoke.py`, `.github/workflows/release.yaml` |
 
 ## 10. Known gaps in this design
 

@@ -5,9 +5,9 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from session_lens.db.models import RawRecording
-from session_lens.storage.base import RecordingExpired
-from session_lens.worker.queue import read_raw, store_raw
+from lens.db.models import RawRecording
+from lens.storage.base import RecordingExpired
+from lens.worker.queue import read_raw, store_raw
 from tests.worker.helpers import recording
 
 

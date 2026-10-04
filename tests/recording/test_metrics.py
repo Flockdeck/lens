@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from session_lens.recording import analyze, parse
+from lens.recording import analyze, parse
 from tests.recording.conftest import make_line, to_bytes
 
 Fx = Callable[[str], bytes]

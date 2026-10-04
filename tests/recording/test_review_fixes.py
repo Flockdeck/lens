@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 import pytest
 
-from session_lens.recording import (
+from lens.recording import (
     Event,
     UnsupportedVersion,
     analyze,
@@ -11,9 +11,9 @@ from session_lens.recording import (
     parse,
     parse_lines,
 )
-from session_lens.recording.files import MAX_ITEMS
-from session_lens.recording.metrics import compute_metrics
-from session_lens.recording.risk import risks_for_call, secret_file_severity
+from lens.recording.files import MAX_ITEMS
+from lens.recording.metrics import compute_metrics
+from lens.recording.risk import risks_for_call, secret_file_severity
 from tests.recording.conftest import make_line, to_bytes
 
 Fx = Callable[[str], bytes]

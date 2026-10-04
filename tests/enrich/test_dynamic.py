@@ -8,10 +8,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from session_lens.config import Settings
-from session_lens.enrich.base import EnrichmentError
-from session_lens.recording.models import Analysis
-from session_lens.runtime_settings import DynamicEnricher, save_overrides
+from lens.config import Settings
+from lens.enrich.base import EnrichmentError
+from lens.recording.models import Analysis
+from lens.runtime_settings import DynamicEnricher, save_overrides
 from tests.dbutil import clear_tables, test_engine
 
 

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from session_lens.config import Settings
-from session_lens.db.migrate import upgrade
+from lens.config import Settings
+from lens.db.migrate import upgrade
 
 # The tests never read the developer's own choices. Settings reads `.env` (where the real
 # ENRICHER and ANTHROPIC_API_KEY live), and a test that built its settings from it would call the
@@ -31,7 +31,7 @@ for _name, _value in {
 @pytest.fixture(scope="session")
 def database_url() -> Iterator[str]:
     """A fresh database file for this run, created from the migration and deleted after."""
-    folder = Path(tempfile.mkdtemp(prefix="session-lens-test-"))
+    folder = Path(tempfile.mkdtemp(prefix="lens-test-"))
     url = f"sqlite+aiosqlite:///{(folder / 'test.db').as_posix()}"
     try:
         upgrade(Settings(database_url=url))
