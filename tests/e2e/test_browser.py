@@ -200,8 +200,13 @@ def test_the_whole_flow_in_a_browser(
     page.wait_for_url("**/#/batches/*")
 
     # --- the batch runs and the page shows it, glyph and word --------------------------------
+    # The retry button appears as soon as one item has failed, while others may still be running,
+    # so wait for the batch itself to settle: three done and one failed.
     page.wait_for_selector("button:has-text('Retry failed (1)')")
-    page.wait_for_selector(".badge-failed")
+    page.wait_for_function(
+        "document.querySelectorAll('tbody .badge-done').length === 3"
+        " && document.querySelectorAll('tbody .badge-failed').length === 1"
+    )
     assert page.locator("tbody .badge-done").count() == 3
     assert page.locator("tbody .badge-failed").count() == 1
     assert "UnsupportedVersion" in page.inner_text("tbody")
@@ -246,8 +251,8 @@ def test_the_whole_flow_in_a_browser(
 
     # --- insights --------------------------------------------------------------------------------
     page.click("#nav >> text=Insights")
-    page.wait_for_selector("svg.chart")
-    assert page.locator("svg.chart").count() >= 2
+    # Each section draws its own charts when its data arrives, so wait for all of them.
+    page.wait_for_function("document.querySelectorAll('svg.chart').length >= 2")
     assert page.get_by_role("heading", name="Compare").count() == 1
 
     # nothing left the machine, and the page never complained
