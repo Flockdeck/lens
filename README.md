@@ -239,10 +239,20 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
 - **The built program** (`packaging/smoke.py`): for each platform's executable, the same flow
   over HTTP, plus: the Anthropic SDK is inside it (pointed at a dead local port, so nothing is
   sent), nothing is lost across a restart, and killing the launcher takes the server with it.
-- GitHub Actions runs ruff, `mypy --strict` and pytest on Linux and Windows, and builds and
-  smoke-tests the program. A release workflow builds it on native runners for all six targets
-  (Windows, macOS and Linux, amd64 and arm64) and drafts a GitHub release with checksums.
-  There is no deployment: this stays on your machine.
+- **CI** (`.github/workflows/ci.yaml`) runs on every push to `main`, every pull request and weekly.
+  One job checks the lockfile, ruff, `mypy --strict` once per platform (Linux, Windows, macOS,
+  since some code is platform specific) and the workflow files with actionlint. One renders every
+  Mermaid diagram in the docs and checks every relative link. The test job runs the whole suite,
+  browser tests included, on Linux, Windows and macOS with Python 3.12 and on Linux with 3.13,
+  with a coverage floor of 90 percent (line and branch) on Linux. One audits the pinned runtime
+  dependencies for known advisories. The last builds and smoke-tests the program on all six
+  targets. `ci-ok` is the single check to require before merging.
+- **Release** (`release.yaml`): pushing a tag like `v0.2.0` runs all of CI, builds the program
+  with that version through the same `build.yaml` CI uses, and drafts a GitHub release with the
+  archives and `checksums.txt`. Nothing is published until you do it. Builds are unsigned.
+  Windows on arm64 is allowed to fail without blocking, since not every dependency is guaranteed
+  to have wheels for it (so far it has not failed).
+- There is no deployment: this stays on your machine.
 
 ### Decisions I would talk about
 
