@@ -43,7 +43,9 @@ die() { printf 'publish-downloads: %s\n' "$*" >&2; exit 1; }
 
 product=lens
 
-[ $# -ge 1 ] && [ $# -le 2 ] || die "usage: $0 <version> [dist]"
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+	die "usage: $0 <version> [dist]"
+fi
 version=$1
 dist=${2:-dist}
 
