@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from session_lens.recording.models import Analysis
+from lens.recording.models import Analysis
 
 
 @pytest.fixture

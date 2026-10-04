@@ -3,7 +3,7 @@ from datetime import UTC
 
 import pytest
 
-from session_lens.recording import (
+from lens.recording import (
     EmptyRecording,
     UnsupportedVersion,
     analyze,

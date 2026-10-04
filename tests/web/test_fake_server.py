@@ -66,7 +66,7 @@ def multipart(files: list[tuple[str, bytes]]) -> tuple[bytes, dict[str, str]]:
 
 def test_static_ui_is_served(server: FakeServer) -> None:
     with urllib.request.urlopen(server.url + "/") as res:  # noqa: S310
-        assert b"session-lens" in res.read()
+        assert b"lens" in res.read()
     with urllib.request.urlopen(server.url + "/js/main.js") as res:  # noqa: S310
         assert "javascript" in res.headers["Content-Type"]
 

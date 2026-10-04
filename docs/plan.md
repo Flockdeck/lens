@@ -2,14 +2,14 @@
 > (no cloud deployment, no remote LLM, local filesystem store, app-enforced retention); the
 > README describes what exists, and `docs/contracts.md` the component interfaces.
 
-# session-lens: feature set and build plan
+# lens: feature set and build plan
 
 ## Context
 
 `yantra-test` is the take-home for the Yantra technical deep dive (brief in `README.md`): a
 FastAPI service that ingests batches, enriches them with an LLM behind an interface (with a
 mock), stores results in a DB via an ORM, and lets a client submit and retrieve work. The idea,
-already written up in the README's "My idea" section, is **session-lens**: it ingests Flockdeck
+already written up in the README's "My idea" section, is **lens**: it ingests Flockdeck
 pane recordings (JSONL, format v1, documented in
 `../../flockdeck-recording/docs/recording-format.md` and `recording-line.schema.json` on branch
 `feat/pane-recording`), computes metrics, enriches with an LLM, and serves a web UI that uses
@@ -21,7 +21,7 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
 
 ## Decisions from the Q&A
 
-- **Name / host:** session-lens, `session-lens.jmwri.dev`, image `ghcr.io/jmwri/session-lens`.
+- **Name / host:** lens, `lens.jmwri.dev`, image `ghcr.io/jmwri/lens`.
 - **Enrichment (LLM):** summary, category, outcome, frustration score, **stuck points**,
   **prompt feedback**. Re-enrichment **overwrites** (stores prompt version + model for info).
 - **Computed (no LLM):** duration, turns, tool mix, error/interrupt rate, permission split,
@@ -32,7 +32,7 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
   `claude-haiku-4-5`, configurable. Token usage stored per enrichment.
 - **Auth:** single bearer API token from the terrawost secret; UI asks once, keeps it in
   `sessionStorage`. `/healthz`, `/readyz`, `/metrics` unauthenticated (cluster-internal).
-- **Processing:** separate worker Deployment (same image, `session-lens worker`) claiming
+- **Processing:** separate worker Deployment (same image, `lens worker`) claiming
   items with `SELECT … FOR UPDATE SKIP LOCKED`; bounded concurrency, backoff with jitter,
   retryable vs permanent errors, idempotency on session id + content hash.
 - **Submission:** `POST /batches` multipart, multiple `.jsonl` files; per-file reject reasons,
@@ -42,7 +42,7 @@ The repo today holds only the README, a PyCharm sample `main.py` and a bare `pyp
   file (hash, size, object key, created/expired times). Files (at most 16 MiB) are fetched whole
   when needed.
 - **Retention:** raw recordings live 30 days. A bucket lifecycle rule (terrawost) expires the
-  objects; a daily `session-lens cleanup` CronJob only sets `expired_at` on old rows and prunes
+  objects; a daily `lens cleanup` CronJob only sets `expired_at` on old rows and prunes
   finished batches older than 90 days. Sessions, metrics and enrichments are kept. Expired raw
   means no events view and no re-enrich (410); delete-session removes the raw object too.
 - **UI (no-build ES modules, served by FastAPI):** submit (multi-select + drag-drop), batch
@@ -76,20 +76,20 @@ API additions to document:
 ## Step 2: scaffold (after README is agreed)
 
 ```
-src/session_lens/
+src/lens/
   config.py            pydantic-settings (DATABASE_URL, API_TOKEN, ENRICHER=mock|anthropic, ...)
   api/                 FastAPI app, routers: batches, sessions, stats, health; auth dependency
   recording/           v1 parser (tolerant rules), models (pydantic events), metrics, risk rules
   enrich/              Enricher protocol, MockEnricher, AnthropicEnricher, prompt + schema
   worker/              claim loop (SKIP LOCKED), retries/backoff, run_item
   db/                  SQLAlchemy models, session factory; alembic/ migrations
-  cli.py               `session-lens api|worker|cleanup`
+  cli.py               `lens api|worker|cleanup`
   web/                 static index.html, css, ES modules
 tests/                 fixtures from documented examples; parser, metrics, worker, API, e2e
 docker-compose.yml     MySQL 8 (+ app/worker for full local run)
 Dockerfile             uv-based multi-stage
 .github/workflows/ci.yaml   ruff, mypy, pytest vs MySQL; image on v* tag (semver, no "v")
-deploy/k8s-infra/session-lens/  deployment-api, deployment-worker, cronjob-cleanup, service,
+deploy/k8s-infra/lens/  deployment-api, deployment-worker, cronjob-cleanup, service,
                      ingress (body-size limit), networkpolicy (+ egress to api.anthropic.com),
                      registry (ImageRepository/ImagePolicy)
 ```
@@ -100,7 +100,7 @@ Delete the PyCharm sample `main.py`. Consult the `claude-api` skill before writi
 
 - `docker compose up -d mysql`, `uv run alembic upgrade head`, `uv run pytest` (MySQL).
 - `uv run ruff check`, `uv run mypy --strict src`.
-- Run `session-lens api` + `session-lens worker` with `ENRICHER=mock`; in the browser, submit
+- Run `lens api` + `lens worker` with `ENRICHER=mock`; in the browser, submit
   several fixture files, watch the batch finish, open a session, view raw events, delete it,
   retry/cancel a batch, check trends/compare and `/metrics`.
-- `docker build` succeeds; `kubectl apply --dry-run=client -f deploy/k8s-infra/session-lens`.
+- `docker build` succeeds; `kubectl apply --dry-run=client -f deploy/k8s-infra/lens`.

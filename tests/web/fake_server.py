@@ -1,7 +1,7 @@
 # ruff: noqa: E501  (canned JSON fixtures read better on one line)
-"""A tiny stdlib fake of the session-lens HTTP API (shapes from docs/contracts.md).
+"""A tiny stdlib fake of the lens HTTP API (shapes from docs/contracts.md).
 
-Serves the static UI from src/session_lens/web/ at `/` and canned, deterministic JSON for the
+Serves the static UI from src/lens/web/ at `/` and canned, deterministic JSON for the
 API, so the UI can be developed and tested without the real API, worker or MySQL.
 
     python tests/web/fake_server.py [--port 8765]
@@ -28,12 +28,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-WEB_ROOT = Path(__file__).resolve().parents[2] / "src" / "session_lens" / "web"
+WEB_ROOT = Path(__file__).resolve().parents[2] / "src" / "lens" / "web"
 MAX_FILE_BYTES = 17 * 1024 * 1024
 
 AGENTS = ["claude-code", "codex", "gemini"]
 MODELS = ["claude-sonnet-5-5", "claude-opus-5-5", "gpt-5", "gemini-3"]
-PROJECTS = ["flockdeck", "vael", "session-lens", "terrawost"]
+PROJECTS = ["flockdeck", "vael", "lens", "terrawost"]
 CATEGORIES = ["bugfix", "feature", "refactor", "exploration", "docs", "tests", "ops", "other"]
 OUTCOMES = ["done", "abandoned", "stuck"]
 
@@ -499,7 +499,7 @@ def main() -> None:
         raw_retention_days=args.retention_days, enricher=args.enricher, storage=args.storage
     )
     srv.state.config_fails = args.no_config
-    print(f"fake session-lens API + UI on {srv.url}")
+    print(f"fake lens API + UI on {srv.url}")
     srv.serve_forever()
 
 

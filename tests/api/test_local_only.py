@@ -12,12 +12,12 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.app import create_app
-from session_lens.api.deps import get_store_provider
-from session_lens.api.local import normalise_hosts
-from session_lens.config import Settings
-from session_lens.db.models import BatchItem
-from session_lens.storage.memory import InMemoryStore
+from lens.api.app import create_app
+from lens.api.deps import get_store_provider
+from lens.api.local import normalise_hosts
+from lens.config import Settings
+from lens.db.models import BatchItem
+from lens.storage.memory import InMemoryStore
 from tests.api.test_batches import files
 from tests.api.test_sessions import seed
 

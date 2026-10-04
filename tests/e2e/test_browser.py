@@ -19,11 +19,11 @@ import httpx
 import pytest
 import uvicorn
 
-from session_lens.api.app import create_app
-from session_lens.db.session import make_engine, make_sessionmaker
-from session_lens.runtime_settings import DynamicEnricher
-from session_lens.storage.base import build_store
-from session_lens.worker.loop import run_worker
+from lens.api.app import create_app
+from lens.db.session import make_engine, make_sessionmaker
+from lens.runtime_settings import DynamicEnricher
+from lens.storage.base import build_store
+from lens.worker.loop import run_worker
 from tests.dbutil import clear_tables
 from tests.e2e.conftest import make_settings, recording
 
@@ -415,7 +415,7 @@ def test_the_session_page_is_tabbed_and_says_what_the_llm_wrote(
     # Only the selected panel is on screen, and it starts on the LLM's analysis.
     assert page.locator("[role=tabpanel]:not([hidden])").count() == 1
     panel = page.locator(".llm-panel").first
-    assert (panel.locator(".origin-llm").text_content() or "").strip().endswith("session-lens LLM")
+    assert (panel.locator(".origin-llm").text_content() or "").strip().endswith("lens LLM")
     for label in ("Frustration", "Analysis model", "Tokens in", "Tokens out", "Prompt version"):
         assert panel.get_by_role("button", name=f"What is {label}?").count() == 1, label
     assert page.get_by_role("button", name="What is Duration?").count() == 0  # on the Metrics tab
@@ -474,5 +474,5 @@ def test_vague_terms_explain_themselves_to_mouse_keyboard_and_touch(
     page.get_by_role("button", name="What is Analysis model?").click()
     assert page.locator(".info-note:visible", has_text="not the model the agent used").count() == 1
     assert page.get_by_role("button", name="What is Completeness?").count() == 1
-    page.get_by_role("button", name="What is session-lens LLM?").click()
+    page.get_by_role("button", name="What is lens LLM?").click()
     assert page.locator(".info-note:visible", has_text="can change when you re-enrich").count() == 1

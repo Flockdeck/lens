@@ -4,9 +4,9 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import text
 
-from session_lens.config import Settings
-from session_lens.db.migrate import head_revision, upgrade
-from session_lens.db.models import Base
+from lens.config import Settings
+from lens.db.migrate import head_revision, upgrade
+from lens.db.models import Base
 from tests.dbutil import test_engine
 
 

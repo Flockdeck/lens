@@ -1,7 +1,7 @@
 """Run a built binary and use it: start it with a fresh data directory, upload a recording,
 wait for the analysis, read it back, and stop it.
 
-    python packaging/smoke.py dist/session-lens[.exe] [--keep]
+    python packaging/smoke.py dist/lens[.exe] [--keep]
 
 stdlib only. Exit status 0 means it works. Used by CI for every platform the binary is built on.
 """
@@ -114,7 +114,7 @@ def upload_and_wait(base: str) -> tuple[dict[str, int], list[dict[str, object]]]
 
 def phase_normal(binary: Path) -> None:
     print("--- the default setup", flush=True)
-    data, port = Path(tempfile.mkdtemp(prefix="session-lens-smoke-")), free_port()
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     started = time.monotonic()
     proc = start(binary, port, data, {})
@@ -122,7 +122,7 @@ def phase_normal(binary: Path) -> None:
         wait_ready(proc, base)
         check(True, f"ready in {time.monotonic() - started:.1f} s")
         status, page = call(base + "/")
-        check(status == 200 and b"session-lens" in page, "the web UI is served")
+        check(status == 200 and b"lens" in page, "the web UI is served")
         status, css = call(base + "/css/app.css")
         check(status == 200 and len(css) > 1000, "its stylesheet and fonts are inside the binary")
         status, cfg = call(base + "/config")
@@ -145,11 +145,9 @@ def phase_normal(binary: Path) -> None:
             check(False, "a request for another host name is refused")
         except urllib.error.HTTPError as err:
             check(err.code == 421, "a request for another host name is refused")
+        check((data / "my data" / "lens.db").exists(), "the database is in the data directory")
         check(
-            (data / "my data" / "session-lens.db").exists(), "the database is in the data directory"
-        )
-        check(
-            (data / "my data" / "session-lens.log").stat().st_size > 0,
+            (data / "my data" / "lens.log").stat().st_size > 0,
             "logs go to a file when stdout is a pipe",
         )
     finally:
@@ -167,7 +165,7 @@ def phase_remote_enricher_is_bundled(binary: Path) -> None:
     """Choose the Anthropic enricher with the SDK aimed at a port nothing listens on: it proves
     the SDK is inside the binary and gets as far as trying to connect, and nothing is sent."""
     print("--- the Anthropic enricher, offline", flush=True)
-    data, port = Path(tempfile.mkdtemp(prefix="session-lens-smoke-")), free_port()
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     extra = {
         "ENRICHER": "anthropic",
@@ -196,7 +194,7 @@ def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     """Something kills the program outright (Task Manager, or Flockdeck stopping it). The server
     behind the launcher must not be left running, holding the port and the database."""
     print("--- the program is killed from outside", flush=True)
-    data, port = Path(tempfile.mkdtemp(prefix="session-lens-smoke-")), free_port()
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     proc = start(binary, port, data, {})
     wait_ready(proc, base)

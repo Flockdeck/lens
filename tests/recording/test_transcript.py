@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
-from session_lens.recording import Analysis, Event, analyze, parse
-from session_lens.recording.models import KNOWN_TYPES
+from lens.recording import Analysis, Event, analyze, parse
+from lens.recording.models import KNOWN_TYPES
 from tests.recording.conftest import FIXTURES, make_line, to_bytes
 
 TRANSCRIPTS = ["transcript_full.jsonl", "transcript_truncated.jsonl", "transcript_minimal.jsonl"]

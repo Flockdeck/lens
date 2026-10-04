@@ -5,8 +5,8 @@ import uuid
 
 import pytest
 
-from session_lens.storage.base import RecordingExpired, build_store
-from session_lens.storage.filesystem import FilesystemStore, InvalidKey
+from lens.storage.base import RecordingExpired, build_store
+from lens.storage.filesystem import FilesystemStore, InvalidKey
 
 KEY = "recordings/2026/10/{}.jsonl"
 
@@ -152,7 +152,7 @@ async def test_aclose_is_a_noop(fs_store):
 
 
 def test_build_store_defaults_to_the_filesystem(tmp_path):
-    from session_lens.config import Settings
+    from lens.config import Settings
 
     store = build_store(Settings(data_dir=str(tmp_path / "d")))
     assert isinstance(store, FilesystemStore) and store.root == tmp_path / "d"

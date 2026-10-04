@@ -3,8 +3,8 @@ from datetime import timedelta
 
 from sqlalchemy import update
 
-from session_lens.db.models import BatchItem, BatchStatus, ItemStatus, utcnow
-from session_lens.worker.loop import claim_items, recover_stale
+from lens.db.models import BatchItem, BatchStatus, ItemStatus, utcnow
+from lens.worker.loop import claim_items, recover_stale
 from tests.worker.helpers import get_batch, get_item, make_batch, recording
 
 
@@ -81,7 +81,7 @@ async def test_stale_claim_out_of_attempts_fails(sm, store):
 
 
 async def test_claim_concurrent_with_cancel_does_not_deadlock(sm, store):
-    from session_lens.worker.queue import cancel_batch
+    from lens.worker.queue import cancel_batch
 
     async def cancel(batch_id):
         async with sm() as db:

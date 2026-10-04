@@ -10,9 +10,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from session_lens.storage.base import RecordingStore
-from session_lens.storage.filesystem import FilesystemStore
-from session_lens.storage.memory import InMemoryStore
+from lens.storage.base import RecordingStore
+from lens.storage.filesystem import FilesystemStore
+from lens.storage.memory import InMemoryStore
 from tests.dbutil import clear_tables, test_engine
 
 
@@ -26,7 +26,7 @@ async def sm(database_url: str) -> AsyncIterator[async_sessionmaker[AsyncSession
 
 @pytest.fixture(autouse=True)
 def fake_recording(monkeypatch: pytest.MonkeyPatch) -> None:
-    from session_lens.worker import processor
+    from lens.worker import processor
     from tests.worker.helpers import fake_analyze, fake_parse
 
     monkeypatch.setattr(processor, "parse", fake_parse)

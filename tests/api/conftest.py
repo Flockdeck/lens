@@ -11,11 +11,11 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
 )
 
-from session_lens.api.app import create_app
-from session_lens.api.deps import get_store_provider
-from session_lens.config import Settings
-from session_lens.db.session import read_sessionmaker
-from session_lens.storage.memory import InMemoryStore
+from lens.api.app import create_app
+from lens.api.deps import get_store_provider
+from lens.config import Settings
+from lens.db.session import read_sessionmaker
+from lens.storage.memory import InMemoryStore
 from tests.dbutil import clear_tables, test_engine
 
 

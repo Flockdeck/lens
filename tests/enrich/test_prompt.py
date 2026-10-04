@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from session_lens.enrich.prompt import build_user_message, output_schema, supplied_seqs
+from lens.enrich.prompt import build_user_message, output_schema, supplied_seqs
 
 
 def _walk_objects(node: Any, defs: dict[str, Any]) -> list[dict[str, Any]]:

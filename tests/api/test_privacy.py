@@ -7,10 +7,10 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.app import warn_if_not_loopback
-from session_lens.api.logging import JsonFormatter
-from session_lens.config import Settings
-from session_lens.storage.memory import InMemoryStore
+from lens.api.app import warn_if_not_loopback
+from lens.api.logging import JsonFormatter
+from lens.config import Settings
+from lens.storage.memory import InMemoryStore
 from tests.api.test_batches import files
 from tests.api.test_sessions import seed
 
@@ -63,7 +63,7 @@ async def test_logs_never_contain_query_strings_or_filenames(
         )
         await client.post("/batches", files=files(("hush-all-rejected.txt", b"x")))
     formatter = JsonFormatter()
-    lines = [formatter.format(r) for r in caplog.records if r.name.startswith("session_lens")]
+    lines = [formatter.format(r) for r in caplog.records if r.name.startswith("lens")]
     assert any('"msg": "request"' in line for line in lines)
     for line in lines:
         assert "hush" not in line, line

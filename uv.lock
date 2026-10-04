@@ -632,6 +632,65 @@ wheels = [
 ]
 
 [[package]]
+name = "lens"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "alembic" },
+    { name = "anthropic" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "platformdirs" },
+    { name = "prometheus-client" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "jsonschema" },
+    { name = "mypy" },
+    { name = "playwright" },
+    { name = "pyinstaller" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "alembic", specifier = ">=1.13" },
+    { name = "anthropic", specifier = ">=1.0" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "platformdirs", specifier = ">=4.12.2" },
+    { name = "prometheus-client", specifier = ">=0.20" },
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "pydantic-settings", specifier = ">=2.3" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.30" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "mypy", specifier = ">=1.10" },
+    { name = "playwright", specifier = ">=1.45" },
+    { name = "pyinstaller", specifier = ">=6.22.3" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "ruff", specifier = ">=0.5" },
+]
+
+[[package]]
 name = "librt"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1381,65 +1440,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/fe/734ec7527029ac757ecf821f143c9f3fcf69149c21f53a044a899b430f5a/ruff-0.16.9-py3-none-win32.whl", hash = "sha256:0e1dbc2073624dee6618d41d0098690a7244654af746704b64759e12b6b6b385", size = 10152355, upload-time = "2026-09-24T20:37:43.025Z" },
     { url = "https://files.pythonhosted.org/packages/14/21/26e4643629b3ebb44f0a06f9c9a53058d63d989415f63a9a3c28e2ee7f22/ruff-0.16.9-py3-none-win_amd64.whl", hash = "sha256:6bd40fec8cd4c8a3d4dd589bd8ad4e6320c13c29234159bfd959a40d529d597b", size = 10592965, upload-time = "2026-09-24T20:37:44.944Z" },
     { url = "https://files.pythonhosted.org/packages/51/60/5fb1a39dbb5ae314d5f59bc7348a63c1d5c20f3cd83914c4b5cb0be31d2d/ruff-0.16.9-py3-none-win_arm64.whl", hash = "sha256:ed1a252039200f57a59eebc063b54beabea67bfbaaca0eeaa7f54b5fbcda2284", size = 10458649, upload-time = "2026-09-24T20:37:46.882Z" },
-]
-
-[[package]]
-name = "session-lens"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiosqlite" },
-    { name = "alembic" },
-    { name = "anthropic" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "platformdirs" },
-    { name = "prometheus-client" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "jsonschema" },
-    { name = "mypy" },
-    { name = "playwright" },
-    { name = "pyinstaller" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiosqlite", specifier = ">=0.22.1" },
-    { name = "alembic", specifier = ">=1.13" },
-    { name = "anthropic", specifier = ">=1.0" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "platformdirs", specifier = ">=4.12.2" },
-    { name = "prometheus-client", specifier = ">=0.20" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "pydantic-settings", specifier = ">=2.3" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.30" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "jsonschema", specifier = ">=4.26.0" },
-    { name = "mypy", specifier = ">=1.10" },
-    { name = "playwright", specifier = ">=1.45" },
-    { name = "pyinstaller", specifier = ">=6.22.3" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-asyncio", specifier = ">=0.23" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
-    { name = "ruff", specifier = ">=0.5" },
 ]
 
 [[package]]

@@ -17,12 +17,12 @@ jobs:
       matrix:
         include:
           # Native runners: PyInstaller cannot cross-compile.
-          - {os: ubuntu-latest,    goos: linux,   goarch: amd64, ext: tar.gz, exe: session-lens}
-          - {os: ubuntu-24.04-arm, goos: linux,   goarch: arm64, ext: tar.gz, exe: session-lens}
-          - {os: macos-15-intel,   goos: darwin,  goarch: amd64, ext: tar.gz, exe: session-lens}
-          - {os: macos-latest,     goos: darwin,  goarch: arm64, ext: tar.gz, exe: session-lens}
-          - {os: windows-latest,   goos: windows, goarch: amd64, ext: zip,    exe: session-lens.exe}
-          - {os: windows-11-arm,   goos: windows, goarch: arm64, ext: zip,    exe: session-lens.exe}
+          - {os: ubuntu-latest,    goos: linux,   goarch: amd64, ext: tar.gz, exe: lens}
+          - {os: ubuntu-24.04-arm, goos: linux,   goarch: arm64, ext: tar.gz, exe: lens}
+          - {os: macos-15-intel,   goos: darwin,  goarch: amd64, ext: tar.gz, exe: lens}
+          - {os: macos-latest,     goos: darwin,  goarch: arm64, ext: tar.gz, exe: lens}
+          - {os: windows-latest,   goos: windows, goarch: amd64, ext: zip,    exe: lens.exe}
+          - {os: windows-11-arm,   goos: windows, goarch: arm64, ext: zip,    exe: lens.exe}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -37,16 +37,16 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then VERSION="0.0.0-dev"; fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          sed -i.bak "s/^__version__ = .*/__version__ = '${VERSION}'/" src/session_lens/_version.py
-          rm src/session_lens/_version.py.bak
-          python -c "import ast,sys; ast.parse(open('src/session_lens/_version.py').read())"
-          grep __version__ src/session_lens/_version.py | head -1
-      - run: uv run pyinstaller packaging/session-lens.spec --noconfirm --distpath dist --workpath build
+          sed -i.bak "s/^__version__ = .*/__version__ = '${VERSION}'/" src/lens/_version.py
+          rm src/lens/_version.py.bak
+          python -c "import ast,sys; ast.parse(open('src/lens/_version.py').read())"
+          grep __version__ src/lens/_version.py | head -1
+      - run: uv run pyinstaller packaging/lens.spec --noconfirm --distpath dist --workpath build
       - name: Use the program we just built
         run: uv run python packaging/smoke.py "dist/${{ matrix.exe }}"
       - name: Archive
         run: |
-          NAME="session-lens_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          NAME="lens_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
           mkdir -p "out/${NAME}"
           cp "dist/${{ matrix.exe }}" "out/${NAME}/"
           cp README.md "out/${NAME}/"
@@ -76,7 +76,7 @@ jobs:
           path: artifacts
           merge-multiple: true
       - name: Checksums
-        run: cd artifacts && sha256sum session-lens_* > checksums.txt && cat checksums.txt
+        run: cd artifacts && sha256sum lens_* > checksums.txt && cat checksums.txt
       - name: Draft the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

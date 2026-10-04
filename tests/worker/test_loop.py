@@ -1,8 +1,8 @@
 import asyncio
 
-from session_lens.config import Settings
-from session_lens.db.models import BatchStatus, ItemStatus
-from session_lens.worker.loop import run_worker
+from lens.config import Settings
+from lens.db.models import BatchStatus, ItemStatus
+from lens.worker.loop import run_worker
 from tests.worker.helpers import (
     FakeEnricher,
     eventually,
@@ -67,7 +67,7 @@ async def test_failures_are_isolated_and_batch_still_finishes(sm, store):
 
 
 async def test_flaky_enricher_eventually_succeeds_after_backoff(sm, store, monkeypatch):
-    from session_lens.worker import processor
+    from lens.worker import processor
 
     monkeypatch.setattr(processor, "backoff_seconds", lambda attempt: 0.0)
     batch_id, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
@@ -108,7 +108,7 @@ async def test_shutdown_past_the_grace_period_requeues_without_consuming_an_atte
 
 
 async def test_cleanup_loop_runs_with_the_worker_and_stops_with_it(sm, store, monkeypatch):
-    from session_lens.worker import loop as loop_module
+    from lens.worker import loop as loop_module
 
     calls = []
 
@@ -134,8 +134,8 @@ async def test_cleanup_loop_deletes_expired_files_then_stops(sm, store):
 
     from sqlalchemy import select, update
 
-    from session_lens.db.models import BatchItem, ItemStatus, RawRecording, utcnow
-    from session_lens.worker.loop import cleanup_loop
+    from lens.db.models import BatchItem, ItemStatus, RawRecording, utcnow
+    from lens.worker.loop import cleanup_loop
 
     _, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
     async with sm() as db:
@@ -159,7 +159,7 @@ async def test_cleanup_loop_deletes_expired_files_then_stops(sm, store):
 async def test_cleanup_loop_survives_a_failing_run(sm, store, monkeypatch):
     import asyncio
 
-    from session_lens.worker import loop as loop_module
+    from lens.worker import loop as loop_module
 
     calls = 0
 
@@ -184,7 +184,7 @@ async def test_cleanup_loop_survives_a_failing_run(sm, store, monkeypatch):
 
 
 async def test_cleanup_interval_zero_disables_the_background_task(sm, store, monkeypatch):
-    from session_lens.worker import loop as loop_module
+    from lens.worker import loop as loop_module
 
     started = []
     monkeypatch.setattr(loop_module, "cleanup_loop", lambda *a: started.append(1))

@@ -1,8 +1,8 @@
 import random
 
-from session_lens.recording.parser import EmptyRecording, UnsupportedVersion
-from session_lens.storage.base import RecordingExpired
-from session_lens.worker.retry import backoff_seconds, classify
+from lens.recording.parser import EmptyRecording, UnsupportedVersion
+from lens.storage.base import RecordingExpired
+from lens.worker.retry import backoff_seconds, classify
 from tests.worker.helpers import permanent, retryable
 
 

@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-WEB = pathlib.Path(__file__).resolve().parents[2] / "src" / "session_lens" / "web"
+WEB = pathlib.Path(__file__).resolve().parents[2] / "src" / "lens" / "web"
 # Set FLOCKDECK_REMOTE_DIR to a flockdeck-remote checkout to compare the copies with their source.
 REMOTE = pathlib.Path(os.environ.get("FLOCKDECK_REMOTE_DIR", "/nonexistent")) / "web" / "app"
 needs_remote = pytest.mark.skipif(not REMOTE.exists(), reason="FLOCKDECK_REMOTE_DIR is not set")

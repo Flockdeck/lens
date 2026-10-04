@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Dark only, like the flockdeck.ai site and the Flockdeck phone client this is drawn from. -->
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0F1418">
+  <meta name="referrer" content="no-referrer">
+  <title>lens</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <!-- The two fonts are Flockdeck's own, served from this origin and asked for before the stylesheet finds it needs them. -->
+  <link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/flockdeck.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="#/submit"><img class="brand-mark" src="img/mark.svg" alt="" width="22" height="22"><span class="wordmark">lens</span></a>
+    <nav id="nav" aria-label="Main">
+      <a href="#/submit">Submit</a>
+      <a href="#/sessions">Sessions</a>
+      <a href="#/insights">Insights</a>
+      <a href="#/settings">Settings</a>
+    </nav>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <footer id="statusbar" class="statusbar" data-state="unknown">
+    <details>
+      <summary><span id="status-text">Status unavailable</span></summary>
+      <p id="status-detail-1">Nothing is uploaded. Recordings stay on this machine and are read only by this server.</p>
+      <p id="status-detail-2">How long raw recordings are kept is set on the server by RAW_RETENTION_DAYS (0 keeps them until you delete them).</p>
+    </details>
+  </footer>
+  <noscript><p class="noscript">lens needs JavaScript.</p></noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -12,11 +12,11 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from session_lens.db.models import Batch, BatchItem
-from session_lens.enrich.base import EnrichmentError
-from session_lens.recording.parser import EmptyRecording, UnsupportedVersion
-from session_lens.storage.base import RecordingStore
-from session_lens.worker.queue import create_batch
+from lens.db.models import Batch, BatchItem
+from lens.enrich.base import EnrichmentError
+from lens.recording.parser import EmptyRecording, UnsupportedVersion
+from lens.storage.base import RecordingStore
+from lens.worker.queue import create_batch
 
 
 class Dump(BaseModel):

@@ -1,6 +1,6 @@
 # Web UI tests
 
-The UI (`src/session_lens/web/`) talks only to the HTTP API in `docs/contracts.md`. These tests
+The UI (`src/lens/web/`) talks only to the HTTP API in `docs/contracts.md`. These tests
 use a stdlib fake of that API, so they need no database, worker or real API.
 
 ## Run
@@ -43,6 +43,6 @@ expired (`raw_available: false`, events and enrich return 410).
 
 ## Privacy checks
 
-`test_web_files_make_no_external_requests` fails if any file under `src/session_lens/web/`
+`test_web_files_make_no_external_requests` fails if any file under `src/lens/web/`
 contains an absolute URL other than the W3C XML namespaces, so a CDN, web font or analytics
 script cannot slip in. `index.html` sets `<meta name="referrer" content="no-referrer">`.

@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from typing import Any
 
-from session_lens.config import Settings
-from session_lens.enrich import build_enricher
-from session_lens.enrich.mock import MockEnricher
+from lens.config import Settings
+from lens.enrich import build_enricher
+from lens.enrich.mock import MockEnricher
 
 
 async def test_deterministic(make_analysis: Callable[..., Any]) -> None:

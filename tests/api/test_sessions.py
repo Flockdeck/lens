@@ -6,13 +6,13 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.deps import get_enricher_provider
-from session_lens.db.models import Enrichment, RawRecording
-from session_lens.db.models import Session as SessionRow
-from session_lens.enrich.base import EnrichmentError, EnrichmentResult
-from session_lens.recording.models import Analysis
-from session_lens.storage.memory import InMemoryStore
-from session_lens.worker import queue
+from lens.api.deps import get_enricher_provider
+from lens.db.models import Enrichment, RawRecording
+from lens.db.models import Session as SessionRow
+from lens.enrich.base import EnrichmentError, EnrichmentResult
+from lens.recording.models import Analysis
+from lens.storage.memory import InMemoryStore
+from lens.worker import queue
 
 
 async def seed(
@@ -148,7 +148,7 @@ async def test_events_and_enrich_410_when_raw_gone(
     assert (await client.post(f"/sessions/{no_raw.id}/enrich")).status_code == 410
     assert (await client.get(f"/sessions/{no_raw.id}")).json()["raw_available"] is False
 
-    # Row marked expired by `session-lens cleanup`.
+    # Row marked expired by `lens cleanup`.
     expired = await seed(db, store, "s2", raw=make_jsonl(1))
     await db.execute(update(RawRecording).values(expired_at=datetime(2026, 2, 1)))
     await db.commit()

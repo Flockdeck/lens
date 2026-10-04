@@ -12,18 +12,18 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.app import create_app
-from session_lens.api.deps import (
+from lens.api.app import create_app
+from lens.api.deps import (
     _WorkerQueue,
     get_enricher_provider,
     get_queue,
     get_store_provider,
 )
-from session_lens.api.logging import JsonFormatter
-from session_lens.config import Settings
-from session_lens.db.models import Enrichment
-from session_lens.db.models import Session as SessionRow
-from session_lens.storage.memory import InMemoryStore
+from lens.api.logging import JsonFormatter
+from lens.config import Settings
+from lens.db.models import Enrichment
+from lens.db.models import Session as SessionRow
+from lens.storage.memory import InMemoryStore
 from tests.api.test_batches import files
 from tests.api.test_sessions import _Enricher, names, seed, use_enricher
 
@@ -133,7 +133,7 @@ async def test_store_build_failure_does_not_mask_404(client: httpx.AsyncClient) 
 async def test_readyz_times_out_on_hung_store(
     client: httpx.AsyncClient, store: InMemoryStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from session_lens.api.routers import health
+    from lens.api.routers import health
 
     monkeypatch.setattr(health, "READY_TIMEOUT_SECONDS", 0.5)
 

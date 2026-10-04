@@ -8,7 +8,7 @@ install:
 
 # The whole service in one process: http://127.0.0.1:8000
 run:
-	uv run session-lens serve --open
+	uv run lens serve --open
 
 lint:
 	uv run ruff check .
@@ -36,10 +36,10 @@ check: lint typecheck test
 
 # Build the single program for this machine, then use it like a person would.
 binary:
-	uv run pyinstaller packaging/session-lens.spec --noconfirm --distpath dist --workpath build
+	uv run pyinstaller packaging/lens.spec --noconfirm --distpath dist --workpath build
 
 smoke: binary
-	uv run python packaging/smoke.py dist/session-lens
+	uv run python packaging/smoke.py dist/lens
 
 clean:
 	rm -rf dist build

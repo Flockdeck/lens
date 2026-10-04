@@ -43,5 +43,5 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync --frozen
-      - run: uv run pyinstaller packaging/session-lens.spec --noconfirm --distpath dist --workpath build
-      - run: uv run python packaging/smoke.py dist/session-lens
+      - run: uv run pyinstaller packaging/lens.spec --noconfirm --distpath dist --workpath build
+      - run: uv run python packaging/smoke.py dist/lens

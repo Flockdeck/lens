@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import text
 
-from session_lens.worker.cleanup import run_cleanup
+from lens.worker.cleanup import run_cleanup
 from tests.e2e.conftest import MAX_FILE_BYTES, Stack, jsonl_line, recording
 
 

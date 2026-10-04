@@ -7,10 +7,10 @@ from typing import Any
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from session_lens.api.deps import get_enricher_provider
-from session_lens.enrich.base import EnrichmentError
-from session_lens.recording.models import Analysis
-from session_lens.storage.memory import InMemoryStore
+from lens.api.deps import get_enricher_provider
+from lens.enrich.base import EnrichmentError
+from lens.recording.models import Analysis
+from lens.storage.memory import InMemoryStore
 from tests.api.test_sessions import seed
 
 

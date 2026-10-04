@@ -1,4 +1,4 @@
-"""`session-lens serve` and `cleanup` as commands: what they ask of the pieces they start."""
+"""`lens serve` and `cleanup` as commands: what they ask of the pieces they start."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from session_lens import cli, parent_watch
-from session_lens.config import get_settings
-from session_lens.db.migrate import upgrade
+from lens import cli, parent_watch
+from lens.config import get_settings
+from lens.db.migrate import upgrade
 
 
 class FakeServer:
@@ -62,7 +62,7 @@ def test_host_and_port_can_be_chosen(fake_uvicorn: list[FakeServer]) -> None:
 def test_a_non_loopback_host_is_checked_for_a_warning(
     fake_uvicorn: list[FakeServer], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from session_lens.api import app as app_module
+    from lens.api import app as app_module
 
     seen: list[str] = []
     monkeypatch.setattr(app_module, "warn_if_not_loopback", lambda host: seen.append(host) or True)

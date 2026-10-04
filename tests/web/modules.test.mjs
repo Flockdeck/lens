@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "../../src/session_lens/web/js");
+const root = join(dirname(fileURLToPath(import.meta.url)), "../../src/lens/web/js");
 const files = [];
 (function walk(dir) {
   for (const name of readdirSync(dir)) {

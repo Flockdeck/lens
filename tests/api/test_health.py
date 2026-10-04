@@ -4,10 +4,10 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from session_lens.api.app import create_app
-from session_lens.api.deps import get_store_provider
-from session_lens.config import Settings
-from session_lens.storage.memory import InMemoryStore
+from lens.api.app import create_app
+from lens.api.deps import get_store_provider
+from lens.config import Settings
+from lens.storage.memory import InMemoryStore
 
 
 async def test_probes_answer(client: httpx.AsyncClient) -> None:
@@ -15,7 +15,7 @@ async def test_probes_answer(client: httpx.AsyncClient) -> None:
     assert (await client.get("/readyz")).status_code == 200
     metrics = await client.get("/metrics")
     assert metrics.status_code == 200
-    assert "session_lens_queue_items" in metrics.text
+    assert "lens_queue_items" in metrics.text
 
 
 async def test_request_metrics_recorded(client: httpx.AsyncClient) -> None:
@@ -38,9 +38,9 @@ async def test_readyz_503_when_store_down(client: httpx.AsyncClient, store: InMe
 
 
 async def test_readyz_503_when_db_unreachable(database_url: str, store: InMemoryStore) -> None:
-    from session_lens.api.app import create_app
-    from session_lens.api.deps import get_store_provider
-    from session_lens.config import Settings
+    from lens.api.app import create_app
+    from lens.api.deps import get_store_provider
+    from lens.config import Settings
 
     bad = (
         "sqlite+aiosqlite:///file:"

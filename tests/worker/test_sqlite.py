@@ -11,22 +11,22 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from session_lens.config import Settings
-from session_lens.db.models import AppSetting, Enrichment, Session
-from session_lens.db.session import make_engine, make_sessionmaker, read_sessionmaker
+from lens.config import Settings
+from lens.db.models import AppSetting, Enrichment, Session
+from lens.db.session import make_engine, make_sessionmaker, read_sessionmaker
 from tests.dbutil import clear_tables, test_engine
 
 
 def test_the_database_defaults_to_a_file_in_the_data_directory(tmp_path: Path) -> None:
     settings = Settings(data_dir=str(tmp_path / "my data"), database_url="")
     assert settings.database_url.startswith("sqlite+aiosqlite:///")
-    assert settings.database_url.endswith("my data/session-lens.db")  # spaces are fine
+    assert settings.database_url.endswith("my data/lens.db")  # spaces are fine
 
 
 def test_the_default_data_directory_is_the_users_own() -> None:
     from platformdirs import user_data_dir
 
-    assert Settings().data_dir == user_data_dir("session-lens", appauthor=False)
+    assert Settings().data_dir == user_data_dir("lens", appauthor=False)
 
 
 def test_an_explicit_database_url_wins(tmp_path: Path) -> None:
@@ -45,7 +45,7 @@ async def test_the_database_folder_is_created(tmp_path: Path) -> None:
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
     await engine.dispose()
-    assert (tmp_path / "a" / "b" / "session-lens.db").exists()
+    assert (tmp_path / "a" / "b" / "lens.db").exists()
 
 
 async def test_pragmas(database_url: str) -> None:
