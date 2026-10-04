@@ -283,25 +283,40 @@ def test_the_keyboard_reaches_everything_and_the_focus_is_visible(
 
     open_app(page, live_app)
 
-    # the skip link shows when focused, and Enter moves the focus to the main area
-    page.focus(".skip")
-    assert page.evaluate("document.querySelector('.skip').getBoundingClientRect().top") >= 0
-    page.keyboard.press("Enter")
+    # The page puts the focus on the main area when it loads. From there, only real key presses
+    # move it: a focus() call from the test is not keyboard focus, and browsers (rightly) do not
+    # draw the focus ring for it, which made this test depend on the browser's heuristics.
     assert page.evaluate("document.activeElement.id") == "main"
 
-    # Tab walks the header in order, every stop draws the accent ring, and Enter follows a link
-    page.focus(".brand")
-    stops = []
-    for _ in range(3):
-        page.keyboard.press("Tab")
-        stops.append(page.evaluate("document.activeElement.textContent.trim()"))
+    def focused() -> tuple[str, list[str]]:
+        text = page.evaluate("document.activeElement.textContent.trim()")
         ring = page.evaluate(
             "(() => { const s = getComputedStyle(document.activeElement);"
             " return [s.outlineStyle, s.outlineWidth, s.outlineColor]; })()"
         )
-        assert ring == ["solid", "2px", "rgb(79, 209, 219)"], ring
-    assert stops == ["Submit", "Sessions", "Insights"]
-    page.focus("#nav a[href='#/sessions']")
+        return text, ring
+
+    # Shift+Tab walks the header backwards. Every navigation link draws the accent ring.
+    stops = []
+    for _ in range(4):
+        page.keyboard.press("Shift+Tab")
+        text, ring = focused()
+        assert ring == ["solid", "2px", "rgb(79, 209, 219)"], (text, ring)
+        stops.append(text)
+    assert stops == ["Settings", "Insights", "Sessions", "Submit"]
+    page.keyboard.press("Shift+Tab")
+    assert focused()[0] == "lens"  # the brand link
+    page.keyboard.press("Shift+Tab")
+    assert focused()[0] == "Skip to content"
+    # the skip link is visible when focused, and Enter moves the focus to the main area
+    assert page.evaluate("document.querySelector('.skip').getBoundingClientRect().top") >= 0
+    page.keyboard.press("Enter")
+    assert page.evaluate("document.activeElement.id") == "main"
+
+    # Enter follows a link: back up to Sessions and press it
+    for _ in range(3):
+        page.keyboard.press("Shift+Tab")
+    assert focused()[0] == "Sessions"
     page.keyboard.press("Enter")
     page.wait_for_url("**/#/sessions")
 

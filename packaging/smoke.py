@@ -59,7 +59,22 @@ def check(ok: bool, what: str) -> None:
         raise SystemExit(1)
 
 
+DATA_DIRS: list[Path] = []
+
+
+def dump_logs() -> None:
+    """The server's log is what explains a failure seen from the outside."""
+    for data in DATA_DIRS:
+        for log in sorted(data.rglob("lens.log")):
+            lines = log.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+            print(f"--- last {len(lines)} lines of {log}")
+            for line in lines:
+                print(line[:300])
+            sys.stdout.flush()
+
+
 def start(binary: Path, port: int, data: Path, extra: dict[str, str]) -> subprocess.Popen[bytes]:
+    DATA_DIRS.append(data)
     env = {
         **os.environ,
         "DATA_DIR": str(data / "my data"),  # a space in the path, as real ones have
@@ -89,13 +104,24 @@ def wait_ready(proc: subprocess.Popen[bytes], base: str) -> None:
     check(False, "the binary became ready within 60 s")
 
 
-def stop(proc: subprocess.Popen[bytes]) -> None:
+def stop(proc: subprocess.Popen[bytes], port: int) -> None:
+    """Ask it to stop, then wait until nothing answers on its port. The launcher exiting is not
+    enough: on Windows the real server runs in a child process that can outlive it briefly, and a
+    restart on the same port would otherwise find the old one still answering."""
     proc.terminate()
     try:
         proc.wait(timeout=30)
     except subprocess.TimeoutExpired:
         proc.kill()
         check(False, "it stopped when asked")
+    deadline = time.monotonic() + 40
+    while time.monotonic() < deadline:
+        with socket.socket() as s:
+            s.settimeout(1)
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return
+        time.sleep(0.3)
+    check(False, "nothing was left listening after it stopped")
 
 
 def upload_and_wait(base: str) -> tuple[dict[str, int], list[dict[str, object]]]:
@@ -151,14 +177,14 @@ def phase_normal(binary: Path) -> None:
             "logs go to a file when stdout is a pipe",
         )
     finally:
-        stop(proc)
+        stop(proc, port)
     # Same data directory, new process: nothing is lost by stopping.
     proc = start(binary, port, data, {})
     try:
         wait_ready(proc, base)
         check(json.loads(call(base + "/sessions")[1])["total"] == 1, "it remembers after a restart")
     finally:
-        stop(proc)
+        stop(proc, port)
 
 
 def phase_remote_enricher_is_bundled(binary: Path) -> None:
@@ -187,7 +213,7 @@ def phase_remote_enricher_is_bundled(binary: Path) -> None:
             f"the SDK is bundled and tried to connect ({error})",
         )
     finally:
-        stop(proc)
+        stop(proc, port)
 
 
 def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
@@ -210,11 +236,19 @@ def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     check(False, "the server stopped listening after its launcher was killed")
 
 
-def main() -> int:
-    binary = Path(sys.argv[1]).resolve()
+def run(binary: Path) -> None:
     phase_normal(binary)
     phase_remote_enricher_is_bundled(binary)
     phase_killed_launcher_takes_the_server_with_it(binary)
+
+
+def main() -> int:
+    binary = Path(sys.argv[1]).resolve()
+    try:
+        run(binary)
+    except BaseException:
+        dump_logs()
+        raise
     print("smoke test passed")
     return 0
 

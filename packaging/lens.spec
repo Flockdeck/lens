@@ -18,7 +18,7 @@ hidden = (
     + ["alembic.operations.ops"]
     # loaded lazily, only when ENRICHER selects them
     + ["lens.enrich.anthropic", "lens.enrich.ollama", "lens.enrich.mock"]
-    + collect_submodules("anthropic")
+    + collect_submodules("anthropic", filter=lambda name: "aiohttp" not in name)
 )
 
 a = Analysis(
