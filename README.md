@@ -181,6 +181,8 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
 
 ### Architecture
 
+[docs/architecture.md](docs/architecture.md) has the full picture: UML diagrams of the components, the data model and the state of a batch item, and sequence diagrams of start-up, upload, processing, retry, re-enrichment, settings and retention. What follows is the short version.
+
 - **Parser** (`recording/`): a tolerant reader for format v1, then `analyze` for the metrics,
   risk rules and the LLM digest. Pure functions over bytes, so they are easy to test.
 - **Storage** (`storage/`): a small `RecordingStore` interface with a local filesystem
