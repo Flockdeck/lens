@@ -1,6 +1,8 @@
 [project]
 name = "lens"
 version = "0.1.0"
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.md"]
 description = "Ingests Flockdeck pane recordings, computes metrics, enriches them with an LLM, and serves an API and web UI."
 requires-python = ">=3.12"
 dependencies = [

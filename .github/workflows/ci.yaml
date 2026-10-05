@@ -46,6 +46,8 @@ jobs:
         run: uvx --from actionlint-py actionlint
       - name: Shell scripts
         run: shellcheck packaging/publish-downloads.sh
+      - name: Third-party notices match the dependencies
+        run: uv run python packaging/third_party_notices.py --check
 
   docs:
     name: docs (diagrams render, links resolve)

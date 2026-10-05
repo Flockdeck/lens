@@ -66,7 +66,7 @@ jobs:
           NAME="lens_${TAG}_${{ matrix.goos }}_${{ matrix.goarch }}"
           mkdir -p "out/${NAME}"
           cp "dist/${{ matrix.exe }}" "out/${NAME}/"
-          cp README.md "out/${NAME}/"
+          cp README.md LICENSE THIRD-PARTY-NOTICES.md "out/${NAME}/"
           cd out
           if [ "${{ matrix.ext }}" = "zip" ]; then
             7z a "${NAME}.zip" "${NAME}" > /dev/null
