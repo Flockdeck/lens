@@ -238,7 +238,8 @@ rules and, with `FLOCKDECK_REMOTE_DIR` set, checks the copies against the source
   focus, no external request and no console error.
 - **The built program** (`packaging/smoke.py`): for each platform's executable, the same flow
   over HTTP, plus: the Anthropic SDK is inside it (pointed at a dead local port, so nothing is
-  sent), nothing is lost across a restart, and killing the launcher takes the server with it.
+  sent), nothing is lost across a restart, killing the launcher takes the server with it, and it
+  starts with the arguments, environment and banner check that Flockdeck's helper catalogue uses.
 - **CI** (`.github/workflows/ci.yaml`) runs on every push to `main`, every pull request and weekly.
   One job checks the lockfile, ruff, `mypy --strict` once per platform (Linux, Windows, macOS,
   since some code is platform specific) and the workflow files with actionlint. One renders every
