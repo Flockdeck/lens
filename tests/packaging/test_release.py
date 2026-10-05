@@ -112,7 +112,7 @@ def sums_for(tmp_path: Path, tag: str = "v0.3.0", *, skip: str | None = None) ->
         if skip and skip in name:
             continue
         (tmp_path / name).write_bytes(name.encode() * 50)
-    release.write_sums(tmp_path)
+    release.write_sums(tmp_path, tag)
 
 
 def test_a_release_missing_a_platform_is_refused(tmp_path: Path) -> None:
@@ -179,10 +179,34 @@ def test_the_command_line_works_end_to_end(
     sums_for(tmp_path)
     key = Ed25519PrivateKey.generate()
     monkeypatch.setenv("LENS_SIGNING_KEY", fake_release.private_pem(key))
-    assert release.main(["sums", "--out", str(tmp_path)]) == 0
+    assert release.main(["sums", "--version", "v0.3.0", "--out", str(tmp_path)]) == 0
     assert release.main(["sign", "--version", "v0.3.0", "--out", str(tmp_path), "--test-key"]) == 0
     assert release.main(["verify", "--version", "v0.3.0", "--out", str(tmp_path)]) == 1  # real keys
     assert "FAIL checksums.txt.sig does not verify" in capsys.readouterr().out
     monkeypatch.delenv("LENS_SIGNING_KEY")
     assert release.main(["sign", "--version", "v0.3.0", "--out", str(tmp_path)]) == 1
     assert "LENS_SIGNING_KEY is not set" in capsys.readouterr().err
+
+
+def test_archives_of_other_releases_in_the_directory_are_refused(tmp_path: Path) -> None:
+    """The first real release run downloaded CI's throwaway archives (lens_v0.0.0-ci_*) into the
+    same directory as the tag's, and the checksums covered all twelve."""
+    sums_for(tmp_path, "v0.1.0-rc.1")
+    for os_name, arch in release.PLATFORMS:
+        name = release.archive_name("v0.0.0-ci", os_name, arch)
+        (tmp_path / name).write_bytes(name.encode() * 50)
+    with pytest.raises(release.ReleaseError, match="not of v0.1.0-rc.1: .*lens_v0.0.0-ci_") as err:
+        release.write_sums(tmp_path, "v0.1.0-rc.1")
+    assert "Only v0.1.0-rc.1's should have been downloaded" in str(err.value)
+    (tmp_path / "checksums.txt").unlink(missing_ok=True)
+    # nothing is written when it refuses
+    with pytest.raises(release.ReleaseError):
+        release.write_sums(tmp_path, "v0.1.0-rc.1")
+    assert not (tmp_path / "checksums.txt").exists()
+
+
+def test_a_release_candidate_tag_is_a_release_tag(tmp_path: Path) -> None:
+    sums_for(tmp_path, "v0.1.0-rc.1")
+    key = Ed25519PrivateKey.generate()
+    release.run_sign(tmp_path, "v0.1.0-rc.1", key_text=fake_release.private_pem(key), any_key=True)
+    assert release.run_verify(tmp_path, "v0.1.0-rc.1", [key.public_key()]) == []

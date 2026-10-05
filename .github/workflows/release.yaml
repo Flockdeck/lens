@@ -85,15 +85,17 @@ jobs:
       - run: uv sync --frozen
 
       # Every platform's build job uploaded its own archive; merged here into one directory.
+      # Only this tag's: the CI run this workflow includes uploads archives of its own
+      # (lens_v0.0.0-ci_*) to the same run, and they must not be signed and published.
       - uses: actions/download-artifact@v4
         with:
-          pattern: lens_*
+          pattern: lens_${{ needs.version.outputs.tag }}_*
           path: dist
           merge-multiple: true
 
       - name: Checksum the merged release
         run: |
-          uv run python packaging/release.py sums --out dist
+          uv run python packaging/release.py sums --version "${TAG}" --out dist
           ls -l dist
 
       # checksums.txt and the release's manifest are signed with Flockdeck's release key, whose

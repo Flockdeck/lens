@@ -1,6 +1,6 @@
 """Checksum, sign and check a release, in the format dl.flockdeck.ai serves and Flockdeck verifies.
 
-    python packaging/release.py sums   --out dist
+    python packaging/release.py sums   --version v0.2.0 --out dist
     python packaging/release.py sign   --version v0.2.0 --out dist [--notes FILE]
     python packaging/release.py verify --version v0.2.0 --out dist
 
@@ -136,12 +136,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def write_sums(out: Path, tag: str | None = None) -> str:
+def write_sums(out: Path, tag: str) -> str:
     """checksums.txt over every archive in `out`. Rebuilt from what is there, since each build job
-    writes only its own platform."""
+    writes only its own platform. An archive of any other release in the directory is an error,
+    not something to leave out: what is signed and published is the directory as it stands."""
     archives = sorted(p for p in out.glob(f"{PRODUCT}_*") if p.suffix in {".zip", ".gz"})
     if not archives:
         raise ReleaseError(f"{out} holds no {PRODUCT} archives")
+    foreign = [p.name for p in archives if not p.name.startswith(f"{PRODUCT}_{tag}_")]
+    if foreign:
+        raise ReleaseError(
+            f"{out} holds archives that are not of {tag}: {', '.join(foreign)}. Only {tag}'s "
+            "should have been downloaded into it"
+        )
     text = "".join(f"{sha256_file(p)}  {p.name}\n" for p in archives)
     (out / "checksums.txt").write_text(text, encoding="utf-8", newline="")
     return text
@@ -288,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    s = sub.add_parser("sums", help="write checksums.txt for the archives in --out")
+    s = sub.add_parser("sums", help="write checksums.txt for the archives of --version in --out")
+    s.add_argument("--version", required=True, help="the release tag, such as v0.2.0")
     s.add_argument("--out", type=Path, default=Path("dist"))
     g = sub.add_parser("sign", help="sign the release in --out")
     g.add_argument("--version", required=True, help="the release tag, such as v0.2.0")
@@ -308,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
             for key in trusted_keys():
                 print(base64.b64encode(raw_public(key)).decode())
         elif args.command == "sums":
-            text = write_sums(args.out)
+            text = write_sums(args.out, args.version)
             print(text, end="")
         elif args.command == "sign":
             run_sign(
