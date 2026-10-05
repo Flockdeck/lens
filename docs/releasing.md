@@ -86,13 +86,19 @@ notarize its own either.
 Nothing below is done by the workflows, and none of it can be, since it needs the infrastructure
 repository (terrawost, applied by its owner).
 
-1. Apply the `release` environment and `LENS_SIGNING_KEY`. A branch that does this exists as
-   `lens-release-signing` in terrawost. It creates the environment on `Flockdeck/lens`, restricted
-   to `v*` tags.
-2. Give that environment the CDN's credentials: `DO_SPACES_KEY`, `DO_SPACES_SECRET`,
-   `DO_SPACES_BUCKET` and `DO_SPACES_REGION`. Flockdeck's `release.tf` does this for its own
-   repository from the `flockdeck-downloads-ci` key; the lens branch does not yet. The values for
-   `DO_SPACES_BUCKET` and `DO_SPACES_REGION` are `flockdeck-downloads` and `lon1`.
+Apply the `lens-release-signing` branch of terrawost (`svc/flockdeck-site/lens_release.tf`). It
+makes, on `Flockdeck/lens`:
+
+- the `release` environment, restricted to `v*` tags;
+- its secret `LENS_SIGNING_KEY`, the value of Flockdeck's release key;
+- the four CDN secrets `DO_SPACES_KEY`, `DO_SPACES_SECRET`, `DO_SPACES_BUCKET` and
+  `DO_SPACES_REGION`, from the same `flockdeck-downloads-ci` key and bucket that Flockdeck's own
+  release environment gets;
+- a ruleset that stops a pushed `v*` tag being moved or deleted.
+
+The GitHub token the workspace uses needs Administration and Environments read and write, and
+Secrets read and write, on `Flockdeck/lens`. Until this is applied a tag still builds, signs
+nothing, and stops at the signing step, naming the missing key.
 
 DigitalOcean Spaces keys are per bucket, not per prefix, so that key can write the whole bucket,
 including Flockdeck's own releases and its `latest.json`. A compromised lens release run could
