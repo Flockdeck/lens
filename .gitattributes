@@ -1,3 +1,6 @@
 # Keep copied Flockdeck assets byte-identical to their source on every platform
 *.svg -text
 *.woff2 binary
+
+# Shell scripts are run by sh, which fails on a carriage return, whatever the checkout platform.
+*.sh text eol=lf
