@@ -4,3 +4,8 @@
 
 # Shell scripts are run by sh, which fails on a carriage return, whatever the checkout platform.
 *.sh text eol=lf
+
+# Legal texts are kept byte for byte, as Flockdeck's own are.
+LICENSE text eol=lf
+THIRD-PARTY-NOTICES.md text eol=lf
+packaging/licenses/*.txt text eol=lf

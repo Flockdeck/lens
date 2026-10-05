@@ -1,0 +1,212 @@
+"""Write THIRD-PARTY-NOTICES.md: the licences of the code that travels inside every release.
+
+    python packaging/third_party_notices.py          # write it
+    python packaging/third_party_notices.py --check  # fail if the committed file is out of date
+
+The executable carries Python, the libraries this program depends on at run time, and the UI's
+fonts, so each release has to reproduce the notices their licences ask for. This reads them from the
+packages themselves. Which libraries are bundled depends on the platform (uvloop on Linux and
+macOS, colorama on Windows), so the packages are fetched for Windows, Linux and macOS and the union
+is listed: no package is installed or run, only its metadata and licence files are read.
+
+Needs `uv` and network access (or a warm uv cache).
+"""
+
+# ruff: noqa: E501  (the text it writes is prose, wrapped where the sentence ends)
+from __future__ import annotations
+
+import argparse
+import email.parser
+import re
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "THIRD-PARTY-NOTICES.md"
+PYTHON_LICENSE = ROOT / "packaging" / "licenses" / "python-LICENSE.txt"
+PLATFORMS = ["x86_64-pc-windows-msvc", "x86_64-manylinux_2_28", "aarch64-apple-darwin"]
+PYTHON_VERSION = "3.12"
+LICENCE_FILE = re.compile(r"^(licen[cs]e|copying|notice|authors?)([-_.].*)?$", re.I)
+
+
+@dataclass
+class Package:
+    name: str
+    version: str
+    licence: str = ""
+    home: str = ""
+    texts: dict[str, str] = field(default_factory=dict)  # file name -> text
+    platforms: set[str] = field(default_factory=set)
+
+
+def normalise(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def run_uv(*args: str) -> str:
+    result = subprocess.run(["uv", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
+    if result.returncode != 0:
+        raise SystemExit(f"uv {' '.join(args[:3])} failed:\n{result.stderr}")
+    return result.stdout
+
+
+def runtime_requirements() -> str:
+    return run_uv("export", "--frozen", "--no-dev", "--no-emit-project", "--no-hashes", "--quiet")
+
+
+def licence_of(meta: email.message.Message) -> str:
+    for key in ("License-Expression", "License"):
+        value = (meta.get(key) or "").strip()
+        if value and "\n" not in value and len(value) < 120:
+            return value
+    classifiers = [
+        c.split("::")[-1].strip()
+        for c in meta.get_all("Classifier", [])
+        if c.startswith("License ::")
+    ]
+    return ", ".join(c for c in classifiers if c != "OSI Approved") or "see the package"
+
+
+def read_target(target: Path, platform: str, found: dict[tuple[str, str], Package]) -> None:
+    for info in sorted(target.glob("*.dist-info")):
+        meta = email.parser.Parser().parsestr(
+            (info / "METADATA").read_text(encoding="utf-8", errors="replace")
+        )
+        name, version = meta["Name"], meta["Version"]
+        pkg = found.setdefault((normalise(name), version), Package(name, version))
+        pkg.platforms.add(platform)
+        pkg.licence = pkg.licence or licence_of(meta)
+        pkg.home = (
+            pkg.home
+            or (meta.get("Home-page") or "").strip()
+            or next(
+                (u.split(",", 1)[1].strip() for u in meta.get_all("Project-URL", []) if "," in u),
+                "",
+            )
+        )
+        for path in sorted(
+            p for p in info.rglob("*") if p.is_file() and LICENCE_FILE.match(p.name)
+        ):
+            text = (
+                path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip("\n")
+            )
+            if text and text not in pkg.texts.values():
+                pkg.texts[path.name] = text
+
+
+def collect() -> list[Package]:
+    requirements = runtime_requirements()
+    found: dict[tuple[str, str], Package] = {}
+    with tempfile.TemporaryDirectory(prefix="lens-notices-") as tmp:
+        req = Path(tmp) / "requirements.txt"
+        req.write_text(requirements, encoding="utf-8")
+        for platform in PLATFORMS:
+            target = Path(tmp) / platform
+            run_uv(
+                "pip", "install", "--quiet", "--no-deps", "--no-compile",
+                "--python-platform", platform, "--python-version", PYTHON_VERSION,
+                "--target", str(target), "-r", str(req),
+            )  # fmt: skip
+            read_target(target, platform, found)
+    return sorted(found.values(), key=lambda p: normalise(p.name))
+
+
+def render(packages: list[Package]) -> str:
+    out = [
+        "# Third-party notices",
+        "",
+        "lens is distributed as a single executable with its web interface compiled into it, so",
+        "everything listed here travels inside every release. Each licence below asks for its",
+        "copyright notice to be reproduced wherever the software is redistributed, and this file is",
+        "how that is done. It is generated by `packaging/third_party_notices.py` from the packages",
+        "themselves and checked in CI, so it cannot drift from the dependencies.",
+        "",
+        "lens itself is under the [PolyForm Noncommercial licence](LICENSE).",
+        "",
+        "---",
+        "",
+        "## Python",
+        "",
+        "The executable contains the CPython interpreter and its standard library, under the Python",
+        "Software Foundation License Version 2. The licence text, as Python ships it:",
+        "",
+        "```",
+        PYTHON_LICENSE.read_text(encoding="utf-8").replace("\r\n", "\n").strip("\n"),
+        "```",
+        "",
+        "## PyInstaller",
+        "",
+        "The executable is made with PyInstaller. Its bootloader, which is part of every executable it",
+        "makes, is under the GPL v2 or later with a special exception: it may be used in an executable",
+        "of any licence, and the executable does not become subject to the GPL. PyInstaller's own",
+        "source is not in the executable.",
+        "",
+        "## Code under the Mozilla Public License 2.0",
+        "",
+        "certifi (the list of trusted certificate authorities) is under the MPL 2.0, which is file-level",
+        "copyleft: the files are bundled unmodified, and their source is the package's own, at the",
+        "address listed under it below. lens's own code is not covered by it.",
+        "",
+        "## Typefaces and design",
+        "",
+        "Archivo and JetBrains Mono are served from the program itself, under the SIL Open Font",
+        "License 1.1. Their licence texts are shipped beside them in `src/lens/web/fonts/` (inside the",
+        "executable as `lens/web/fonts/OFL-Archivo.txt` and `OFL-JetBrainsMono.txt`). The look of the",
+        "interface, its tokens and the mark, are Flockdeck's, under the same licence as lens.",
+        "",
+        "---",
+        "",
+        f"## Python libraries, bundled into the executable ({len(packages)})",
+        "",
+        "The libraries the program imports at run time, with the libraries they need. Which of them",
+        "an executable carries depends on its platform; each is listed once, with the platforms it",
+        "is built for if not all of them.",
+        "",
+    ]
+    for pkg in packages:
+        out.append(f"### {pkg.name} {pkg.version}")
+        out.append("")
+        out.append(f"Licence: {pkg.licence}")
+        if pkg.home:
+            out.append(f"Source: {pkg.home}")
+        if pkg.platforms != set(PLATFORMS):
+            short = {
+                "x86_64-pc-windows-msvc": "Windows",
+                "x86_64-manylinux_2_28": "Linux",
+                "aarch64-apple-darwin": "macOS",
+            }
+            out.append("Platforms: " + ", ".join(sorted(short[p] for p in pkg.platforms)))
+        out.append("")
+        if not pkg.texts:
+            out.append("The package ships no licence file; its licence is as stated above.")
+            out.append("")
+        for text in pkg.texts.values():
+            out.append("```")
+            out.append(text)
+            out.append("```")
+            out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="exit 1 if the committed file differs")
+    args = parser.parse_args()
+    text = render(collect())
+    if args.check:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current.replace("\r\n", "\n") != text:
+            print(f"{OUT.name} is out of date: run `python packaging/third_party_notices.py`")
+            return 1
+        print(f"{OUT.name} is up to date")
+        return 0
+    OUT.write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {OUT.name}: {len(text.splitlines())} lines")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

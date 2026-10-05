@@ -9,7 +9,7 @@
 
 lens is built as independent components. Each owns a directory and codes against the
 interfaces below, so they can be written in parallel and joined later. The product is described
-in `README.md`, the decisions in `docs/plan.md`, the input format in Flockdeck's
+in `README.md`, how it fits together in `docs/architecture.md`, the input format in Flockdeck's
 `docs/recording-format.md` and `docs/recording-line.schema.json` (main branch of the flockdeck
 repo; the key rules are repeated in the README and below, and the schema is copied to
 `tests/fixtures/recording-line.schema.json`).
