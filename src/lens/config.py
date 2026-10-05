@@ -1,12 +1,14 @@
 """Settings, read from the environment (prefix-free, upper-case)."""
 
+import json
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from platformdirs import user_data_dir
-from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -18,8 +20,25 @@ class Settings(BaseSettings):
 
     # Names this machine answers to. A request addressed to any other name (DNS rebinding) is
     # refused, and so is a write from a page on another origin. To change the list, set
-    # ALLOWED_HOSTS='["127.0.0.1", "localhost"]'.
-    allowed_hosts: list[str] = ["127.0.0.1", "localhost", "::1"]
+    # ALLOWED_HOSTS to one name, to names separated by commas or spaces, or to a JSON list:
+    # 127.0.0.1 | 127.0.0.1,localhost | ["127.0.0.1", "localhost"]. (A program that starts lens,
+    # Flockdeck for one, passes it as a plain name, which pydantic would otherwise reject.)
+    allowed_hosts: Annotated[list[str], NoDecode] = ["127.0.0.1", "localhost", "::1"]
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _read_allowed_hosts(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None  # "[::1]" is an IPv6 name, not a list
+            if isinstance(parsed, list):
+                return parsed
+        return [name for name in re.split(r"[,\s]+", text) if name]
 
     # mock (default) and ollama send nothing anywhere. anthropic is the one remote option: it
     # sends the bounded session digest (not the raw recording) to the Anthropic API, if chosen.

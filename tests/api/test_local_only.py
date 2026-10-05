@@ -152,3 +152,28 @@ async def test_a_refusal_does_not_log_what_the_caller_chose(
     await loopback_client.post("/batches", headers={"Origin": "http://secret-origin.evil.example"})
     assert "evil.example" not in caplog.text
     assert "request refused" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("127.0.0.1", ["127.0.0.1"]),  # what Flockdeck passes
+        ("127.0.0.1,localhost", ["127.0.0.1", "localhost"]),
+        ("127.0.0.1, localhost ,::1", ["127.0.0.1", "localhost", "::1"]),
+        ("127.0.0.1 localhost", ["127.0.0.1", "localhost"]),
+        ('["127.0.0.1", "localhost"]', ["127.0.0.1", "localhost"]),
+        ("[::1]", ["[::1]"]),  # an IPv6 name in brackets, not a JSON list
+        ("[::1]:8000,localhost", ["[::1]:8000", "localhost"]),
+    ],
+)
+def test_allowed_hosts_can_be_given_as_a_name_a_list_or_json(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    """It used to accept only JSON, so a program that set ALLOWED_HOSTS=127.0.0.1 crashed lens."""
+    monkeypatch.setenv("ALLOWED_HOSTS", raw)
+    assert Settings().allowed_hosts == expected
+
+
+def test_a_name_from_the_environment_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALLOWED_HOSTS", "127.0.0.1")
+    assert normalise_hosts(Settings().allowed_hosts) == {"127.0.0.1"}  # localhost is not in it

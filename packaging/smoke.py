@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -236,8 +238,75 @@ def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     check(False, "the server stopped listening after its launcher was killed")
 
 
+# What Flockdeck's helper supervisor passes through from its own environment (internal/helpers/
+# env.go, inheritedNames). Nothing else of the caller's reaches a helper.
+FLOCKDECK_INHERITED = [
+    "PATH", "PATHEXT", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR",
+    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE",
+]  # fmt: skip
+# The first line a helper prints has to match this, and its port has to be the one Flockdeck chose
+# (internal/helpers/catalogue.go, the lens entry's Banner).
+FLOCKDECK_BANNER = re.compile(r"^lens \S+ at http://localhost:(\d{1,5})/$")
+
+
+def phase_launched_the_way_flockdeck_launches_it(binary: Path) -> None:
+    """The contract with the Flockdeck app that installs lens. It starts the program with these
+    arguments and this environment (the lens entry in its helper catalogue), reads the first
+    line it prints and checks the banner and the port, then probes /readyz and /healthz."""
+    print("--- launched the way Flockdeck launches it", flush=True)
+    data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
+    DATA_DIRS.append(data)
+    env = {k: v for k, v in os.environ.items() if k.upper() in FLOCKDECK_INHERITED}
+    env.update(
+        {
+            "PORT": str(port),
+            "HOST": "127.0.0.1",
+            "DATA_DIR": str(data / "helper data"),
+            "ALLOWED_HOSTS": "127.0.0.1",  # a plain name, not JSON
+            "LOG_FILE": "-",  # the log goes to stdout, which Flockdeck keeps in its own log
+        }
+    )
+    proc = subprocess.Popen(  # noqa: S603
+        [str(binary), "serve", "--host", "127.0.0.1", "--port", str(port)],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    lines: list[str] = []
+
+    def drain() -> None:  # Flockdeck reads the output as it comes; so must this, or the pipe fills
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            lines.append(raw.decode(errors="replace").rstrip("\r\n"))
+
+    threading.Thread(target=drain, daemon=True).start()
+    base = f"http://127.0.0.1:{port}"
+    try:
+        wait_ready(proc, base)
+        check(bool(lines), "it printed something")
+        match = FLOCKDECK_BANNER.match(lines[0])
+        check(match is not None, f"its first line is Flockdeck's banner ({lines[0]!r})")
+        assert match is not None
+        check(int(match.group(1)) == port, "the banner names the port Flockdeck chose")
+        check(call(base + "/healthz")[0] == 200, "/healthz answers")
+        body, ctype = multipart("run.jsonl", FIXTURE.read_bytes())
+        check(
+            call(base + "/batches", body, {"Content-Type": ctype})[0] == 202, "it takes an upload"
+        )
+        wrong = urllib.request.Request(base + "/healthz", headers={"Host": "localhost"})
+        try:
+            urllib.request.urlopen(wrong, timeout=5)  # noqa: S310
+            check(False, "ALLOWED_HOSTS=127.0.0.1 is enforced")
+        except urllib.error.HTTPError as err:
+            check(err.code == 421, "ALLOWED_HOSTS=127.0.0.1 is enforced: another name gets 421")
+    finally:
+        stop(proc, port)
+
+
 def run(binary: Path) -> None:
     phase_normal(binary)
+    phase_launched_the_way_flockdeck_launches_it(binary)
     phase_remote_enricher_is_bundled(binary)
     phase_killed_launcher_takes_the_server_with_it(binary)
 
