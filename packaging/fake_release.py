@@ -45,7 +45,7 @@ def make_release(
     key = key or Ed25519PrivateKey.generate()
     for i, (os_name, arch) in enumerate(release.PLATFORMS):
         (out / release.archive_name(tag, os_name, arch)).write_bytes(os.urandom(size + i))
-    release.write_sums(out)
+    release.write_sums(out, tag)
     notes_file = out / "notes.md"
     notes_file.write_text(notes + "\n", encoding="utf-8")
     release.run_sign(out, tag, key_text=private_pem(key), notes=notes_file, any_key=True, now=now)

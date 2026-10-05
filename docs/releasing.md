@@ -112,7 +112,7 @@ No DNS change is needed. `dl.flockdeck.ai` already exists.
 ## Running a step by hand
 
 ```sh
-python packaging/release.py sums --out dist          # after putting the six archives in dist/
+python packaging/release.py sums --version v0.2.0 --out dist          # after putting the six archives in dist/
 LENS_SIGNING_KEY=... python packaging/release.py sign --version v0.2.0 --out dist --notes docs/releases/v0.2.0.md
 python packaging/release.py verify --version v0.2.0 --out dist
 DO_SPACES_KEY=... DO_SPACES_SECRET=... DO_SPACES_BUCKET=flockdeck-downloads DO_SPACES_REGION=lon1 \

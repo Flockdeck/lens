@@ -261,7 +261,7 @@ def test_publishing_the_same_release_again_changes_nothing_that_was_cached(
     )
     for p in dist.glob("lens_*"):
         shutil.copy(p, tmp_path / "again" / p.name)
-    release.write_sums(tmp_path / "again")
+    release.write_sums(tmp_path / "again", "v0.3.0")
     release.run_sign(
         tmp_path / "again",
         "v0.3.0",
