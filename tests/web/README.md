@@ -1,6 +1,6 @@
 # Web UI tests
 
-The UI (`src/lens/web/`) talks only to the HTTP API in `docs/contracts.md`. These tests
+The UI (`src/lens/web/`) talks only to the HTTP API in [docs/contracts.md](../../docs/contracts.md). These tests
 use a stdlib fake of that API, so they need no database, worker or real API.
 
 ## Run
@@ -27,11 +27,11 @@ argument as a file and fails).
 ## Look at the UI
 
 ```
-python tests/web/fake_server.py            # http://127.0.0.1:8765, token: dev-token
+uv run python tests/web/fake_server.py     # http://127.0.0.1:8765
 ```
 
-Flags change `GET /config`: `--retention-days 0`, `--enricher ollama`, `--storage s3`, `--no-config`
-(makes it fail, to see the "Status unavailable" state).
+Flags change `GET /config`: `--retention-days 0`, `--enricher ollama` (or `anthropic`),
+`--no-config` (makes it fail, to see the "Status unavailable" state). `--port` changes the port.
 
 It serves the real static files plus canned data: a batch that advances on each poll, a file
 named `bad*.jsonl` that fails, and one session (the highest id) whose raw recording has

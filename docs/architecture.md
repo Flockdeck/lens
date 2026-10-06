@@ -40,7 +40,7 @@ flowchart LR
     proc --> log
 ```
 
-Flockdeck is not connected to the program. The person picks recording files and uploads them. The default enricher is a mock that calls nothing. The dotted line to Anthropic exists only when the person chooses that enricher in Settings, and what crosses it is a size-limited digest of a session, never the raw file.
+Flockdeck does not send recordings to the program, although it can install and start it. The person picks recording files and uploads them. The default enricher is a mock that calls nothing. The dotted line to Anthropic exists only when the person chooses that enricher in Settings, and what crosses it is a size-limited digest of a session, never the raw file.
 
 The server and the worker are one operating-system process. The server answers requests on the event loop. The worker is a task on the same loop, started when the server starts and stopped when it stops.
 
@@ -886,5 +886,5 @@ The smoke test runs the built executable the way a person would: upload a record
 - The Anthropic key is stored unencrypted in the SQLite file. Anyone who can read the data folder can read it.
 - Retention deletes raw files but keeps the digest-derived fields (summaries, stuck points, prompt feedback) forever. Those can quote the recording.
 - There is one writer. A very large batch of long sessions is limited by the enricher, not the database, but a slow disk would show up as write-lock waits.
-- Only the Windows x64 executable has been built and run. The other five targets are built by the release workflow, which has not run yet.
+- The Windows arm64 build is marked experimental in CI because some dependencies may lack wheels there. It reports but does not block a release. The other five targets must pass.
 - A comment in `worker/queue.py` still describes a lock ordering that mattered under MySQL. It is harmless under SQLite.
