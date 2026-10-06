@@ -65,7 +65,7 @@ installs lens and checks `checksums.txt.sig` against the keys compiled into it, 
 and its standby. A lens key would need a Flockdeck release before anything signed by it was
 accepted.
 
-That has a consequence worth knowing. The private half is in the `release` environment of this
+The private half is in the `release` environment of this
 repository, as `LENS_SIGNING_KEY`, so a leak from this repository can sign Flockdeck releases too,
 and the other way round. The terrawost change that makes the secret
 (`svc/flockdeck-site/lens_release.tf`) says the same.
@@ -86,8 +86,8 @@ notarize its own either.
 Nothing below is done by the workflows, and none of it can be, since it needs the infrastructure
 repository (terrawost, applied by its owner).
 
-Apply the `lens-release-signing` branch of terrawost (`svc/flockdeck-site/lens_release.tf`). It
-makes, on `Flockdeck/lens`:
+The infrastructure repository (terrawost, `svc/flockdeck-site/lens_release.tf`) makes, on
+`Flockdeck/lens`:
 
 - the `release` environment, restricted to `v*` tags;
 - its secret `LENS_SIGNING_KEY`, the value of Flockdeck's release key;
@@ -97,8 +97,8 @@ makes, on `Flockdeck/lens`:
 - a ruleset that stops a pushed `v*` tag being moved or deleted.
 
 The GitHub token the workspace uses needs Administration and Environments read and write, and
-Secrets read and write, on `Flockdeck/lens`. Until this is applied a tag still builds, signs
-nothing, and stops at the signing step, naming the missing key.
+Secrets read and write, on `Flockdeck/lens`. Without it a tag still builds, signs nothing, and
+stops at the signing step, naming the missing key. v0.1.0 and v0.1.1 have been released this way.
 
 DigitalOcean Spaces keys are per bucket, not per prefix, so that key can write the whole bucket,
 including Flockdeck's own releases and its `latest.json`. A compromised lens release run could
@@ -112,9 +112,9 @@ No DNS change is needed. `dl.flockdeck.ai` already exists.
 ## Running a step by hand
 
 ```sh
-python packaging/release.py sums --version v0.2.0 --out dist          # after putting the six archives in dist/
-LENS_SIGNING_KEY=... python packaging/release.py sign --version v0.2.0 --out dist --notes docs/releases/v0.2.0.md
-python packaging/release.py verify --version v0.2.0 --out dist
+uv run python packaging/release.py sums --version v0.2.0 --out dist          # after putting the six archives in dist/
+LENS_SIGNING_KEY=... uv run python packaging/release.py sign --version v0.2.0 --out dist --notes docs/releases/v0.2.0.md
+uv run python packaging/release.py verify --version v0.2.0 --out dist
 DO_SPACES_KEY=... DO_SPACES_SECRET=... DO_SPACES_BUCKET=flockdeck-downloads DO_SPACES_REGION=lon1 \
   sh packaging/publish-downloads.sh v0.2.0 dist
 ```
@@ -129,5 +129,3 @@ with `LENS_ALLOW_LISTABLE=1` against one that lists its bucket, which only a loc
   the bucket by hand and purging the CDN.
 - No code signing or notarization of the executables, and no software bill of materials or
   provenance attestation.
-- The first real release has not been made, so the workflow has only been run up to the point where
-  it needs the `release` environment.
