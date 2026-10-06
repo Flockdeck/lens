@@ -464,7 +464,7 @@ erDiagram
     }
 ```
 
-Some choices in this model are worth knowing before reading the flows:
+These choices in the model shape the flows below:
 
 - A session is identified by its `recording_session` string, not by the upload. Uploading the same session twice, or a longer copy of it, updates one row. `content_hash` decides whether anything changed.
 - A `batch_item` is the unit of work. Its `locked_at` value is a claim token: only the claimer whose token still matches may finish the item.
