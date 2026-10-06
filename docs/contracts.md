@@ -1,31 +1,23 @@
 # Component contracts
 
-> **Update.** This file was written when the service was going to be hosted: MySQL, a separate API
-> and worker, an S3 store. It is now one local process on SQLite with files on disk. The module
-> boundaries and the HTTP contract below still hold; where it names MySQL, `SKIP LOCKED`, the
-> worker as its own process or S3, read: SQLite (`db/session.py`), one write transaction at a time,
-> the same code running inside the server, and the filesystem store.
-
-
-lens is built as independent components. Each owns a directory and codes against the
-interfaces below, so they can be written in parallel and joined later. The product is described
-in `README.md`, how it fits together in `docs/architecture.md`, the input format in Flockdeck's
-`docs/recording-format.md` and `docs/recording-line.schema.json` (main branch of the flockdeck
-repo; the key rules are repeated in the README and below, and the schema is copied to
-`tests/fixtures/recording-line.schema.json`).
+lens is built as independent components. Each owns a directory and codes against the interfaces
+below. The service is one local process on SQLite with recordings as files on disk: the worker is a
+task inside the server, not a separate program. The product is described in [README.md](../README.md)
+and [usage.md](usage.md), how it fits together in [architecture.md](architecture.md), and the input
+format in Flockdeck's `docs/recording-format.md` and `docs/recording-line.schema.json` (main branch
+of the flockdeck repo; the key rules are repeated in [usage.md](usage.md) and below, and the schema
+is copied to `tests/fixtures/recording-line.schema.json`).
 
 | Component | Owns | Depends on |
 | --- | --- | --- |
 | recording | `src/lens/recording/`, `tests/recording/`, `tests/fixtures/` | nothing |
 | enrich | `src/lens/enrich/`, `tests/enrich/` | recording's `Analysis` type |
-| worker | `src/lens/worker/`, `src/lens/storage/`, `src/lens/db/` (except `models.py`), `alembic/`, `alembic.ini`, `src/lens/cli.py` | recording, enrich, `db/models.py` |
+| worker | `src/lens/worker/`, `src/lens/storage/`, `src/lens/db/` (except `models.py`), `src/lens/migrations/`, `alembic.ini`, `src/lens/cli.py` | recording, enrich, `db/models.py` |
 | api | `src/lens/api/`, `tests/api/` | `db/models.py`, `config.py` |
 | web | `src/lens/web/`, `tests/web/` | the HTTP API below |
-| deploy | `Dockerfile`, `docker-compose.yml`, `.github/`, `deploy/`, `Makefile` | everything, by name only |
+| packaging | `packaging/`, `.github/`, `Makefile` | everything, by name only |
 
-`src/lens/config.py` and `src/lens/db/models.py` are shared and already written.
-Do not edit them without need; if you must, keep the change small and say so in your final
-message. Do not edit `pyproject.toml` except to add a dependency your component needs.
+`src/lens/config.py` and `src/lens/db/models.py` are shared. Keep changes to them small.
 
 ## recording
 
@@ -56,9 +48,9 @@ class Analysis(BaseModel):         # everything computed from one file, no LLM
 # recording/parser.py
 class UnsupportedVersion(Exception): ...      # permanent failure
 class EmptyRecording(Exception): ...          # permanent failure
-def parse(data: bytes) -> list[Event]: ...    # tolerant: skips bad last line / unknown types
+def parse(data: bytes) -> EventList: ...      # a list[Event] plus warnings; tolerant: skips bad last line / unknown types
 def analyze(events: list[Event]) -> Analysis: ...
-def parse_lines(lines: Iterable[str]) -> list[Event]: ...   # same tolerance as parse()
+def parse_lines(lines: Iterable[str]) -> EventList: ...     # same tolerance as parse()
 def analyze_lines(lines: Iterable[str]) -> Analysis: ...    # parse_lines + analyze
 ```
 
@@ -68,7 +60,7 @@ fetched file and slices by `seq`.
 
 `Metrics` (stored in `sessions.metrics`): `duration_seconds`, `turns`, `tool_calls`,
 `tool_mix: dict[str,int]`, `tool_errors`, `tool_interrupted`, `unpaired_calls`,
-`permission: {prompts, allowed, denied, auto_approved, abandoned}`,
+`permission: {prompts, allowed, denied, auto_approved, abandoned, inferred}`,
 `status_seconds: dict[str,float]`, `redacted_lines`, `clipped_lines`, `models: list[str]` (every
 model named, in order; absent in sessions stored before it was added), and, absent in sessions
 stored before they were added: `permissions_recorded: bool`, `status_recorded: bool`,
@@ -105,8 +97,8 @@ How the reader handles that:
 - `Analysis.title` is the `title` of the last `conversation_title` line (a line is written when
   the title first appears and when it changes). `Analysis.conversation` is the first
   `conversation` seen. The database has no column for either yet.
-- **Permission and status lines are absent from a transcript, so the permission split and the time
-  in each status are empty, not zero.** `permission` stays all zeros and `status_seconds` empty,
+- Permission and status lines are absent from a transcript, so the permission split and the time
+  in each status are empty, not zero. `permission` stays all zeros and `status_seconds` empty,
   and `permissions_recorded` / `status_recorded` say whether the file had any such line at all
   (false for every transcript). A consumer must not read `denied == 0` as "nothing was denied"
   when `permissions_recorded` is false. A tool the user refused is an error `tool_result`, so it
@@ -146,6 +138,8 @@ class EnrichmentResult(BaseModel):
     frustration: float                   # 0..1
     stuck_points: list[StuckPoint]       # {description, approx_seq: int | None}
     prompt_feedback: str | None
+    model_fit: Literal["well_matched", "overpowered", "underpowered", "unclear"] | None
+    model_fit_reason: str | None
     risk_notes: list[RiskNote]           # {seq, explanation}
     input_tokens: int; output_tokens: int; model: str; prompt_version: str
 
@@ -161,12 +155,11 @@ def build_enricher(settings: Settings) -> Enricher: ...   # mock (default), loca
 
 ## storage (owned by the worker component)
 
-lens is local: **no recording data leaves the machine**. Raw recordings are files on the
-local filesystem under `DATA_DIR` by default (`STORAGE=filesystem`). An S3-compatible store
-(`STORAGE=s3`, a bucket you run yourself; `pip install lens[s3]`) is an optional
-implementation behind the same interface. The database keeps **one `raw_recordings` row per
-file** (hash, size, `object_key`, `created_at`, `expired_at`); the bytes are fetched whole when
-needed (at most 16 MiB).
+Raw recordings are files on the local filesystem under `DATA_DIR`. They never leave the machine;
+only the optional Anthropic enricher sends anything, and that is a bounded digest (see
+[privacy.md](privacy.md)). The database keeps one `raw_recordings` row per file (hash, size,
+`object_key`, `created_at`, `expired_at`); the bytes are fetched whole when needed (at most
+16 MiB). `InMemoryStore` implements the same interface for tests.
 
 ```python
 # storage/base.py
@@ -179,7 +172,7 @@ class RecordingStore(Protocol):
     async def ping(self) -> None: ...                    # for /readyz; raises if unusable
     async def aclose(self) -> None: ...                  # call once at shutdown
 
-def build_store(settings: Settings) -> RecordingStore: ...   # filesystem (default) or s3
+def build_store(settings: Settings) -> RecordingStore: ...   # the filesystem store
 ```
 
 `FilesystemStore(root)` writes atomically (temp file in the same directory, then `os.replace`),
@@ -187,12 +180,12 @@ creates files 0600 and directories 0700 where the OS allows, removes empty paren
 delete, and rejects any key that is absolute, contains `..`, or resolves outside the root
 (`InvalidKey`).
 
-Keys are `{s3_prefix}YYYY/MM/<uuid4>.jsonl` (`s3_prefix` defaults to `recordings/` and applies to
-both stores), one file per upload, never shared between rows. Helpers in `worker/queue.py` (all
+Keys are `{store_prefix}YYYY/MM/<uuid4>.jsonl` (`STORE_PREFIX` defaults to `recordings/`), one file
+per upload, never shared between rows. Helpers in `worker/queue.py` (all
 take the store explicitly):
 
-- `await store_raw(session, store, data: bytes) -> RawRecording`: hash the bytes, **put the file
-  first**, then add the row (flushed, not committed). A failure after the put leaves an orphan
+- `await store_raw(session, store, data: bytes) -> RawRecording`: hash the bytes, put the file
+  first, then add the row (flushed, not committed). A failure after the put leaves an orphan
   file (harmless, and unreferenced); a row never points at a missing file.
 - `await read_raw(session, store, raw_id) -> bytes`: raises `RecordingExpired` if the row has
   `expired_at` set or the file is gone (and then sets `expired_at`).
@@ -202,18 +195,17 @@ take the store explicitly):
 
 ### Retention and cleanup
 
-- Retention is **enforced by the app**: raw files are kept `raw_retention_days` (default 30;
+- Retention is enforced by the app: raw files are kept `raw_retention_days` (default 30;
   `0` keeps them forever). Cleanup deletes the stored file of each raw row past retention (best
   effort; a missing file is fine) and then sets `expired_at`, in chunks. A raw that a queued or
   running item still needs is skipped. It also deletes finished batches (and their items) older
   than 90 days. Sessions, metrics and enrichments are kept.
-- The **worker runs cleanup in-process** every `cleanup_interval_seconds` (default 3600; `0`
-  disables) as a background task that logs and survives its own errors, so no CronJob is needed.
-  Cleanup holds a MySQL named lock (`GET_LOCK`), so overlapping runs (several workers, or a
-  manual run) skip instead of colliding. `lens cleanup` runs it once by hand.
-- `lens check-storage` prints which store is in use and verifies put/get/delete of a
-  probe object (exit 0/1). `lens check-bucket [--strict]` applies only to
-  `STORAGE=s3` (an optional bucket expiry rule only sweeps orphans from failed uploads).
+- The worker runs cleanup in-process every `cleanup_interval_seconds` (default 3600; `0`
+  disables) as a background task that logs and survives its own errors. Cleanup holds an
+  in-process `asyncio.Lock`, so a manual run that overlaps the timer's skips instead of colliding.
+  `lens cleanup` runs it once by hand.
+- `lens check-storage` prints the data directory and verifies put/get/delete of a probe file
+  (exit 0/1).
 - An item that references an expired recording fails permanently ("raw recording expired").
   `GET /sessions/{id}/events` and `POST /sessions/{id}/enrich` return `410` for an expired
   recording; session responses carry `raw_available: bool` so the UI can disable them.
@@ -223,10 +215,12 @@ take the store explicitly):
 
 ## worker
 
-- `lens worker` runs the claim loop; `lens api` serves; `lens cleanup`
-  runs retention cleanup once (the worker also does it on a timer); `lens migrate` runs `alembic upgrade head`.
-- Claiming uses `with_for_update(skip_locked=True)`; stale claims (`locked_at` older than
-  `claim_timeout_seconds`) are re-queued. Backoff sets `not_before`.
+- The claim loop runs inside `lens serve`; there is no separate worker command. `lens cleanup`
+  runs retention cleanup once (the worker also does it on a timer). The database is migrated to
+  the Alembic head on every start, so there is no migrate command.
+- `claim_items` (`worker/loop.py`) selects the due queued items and marks them running in one
+  write transaction, which holds the write lock, so no item is claimed twice. Stale claims
+  (`locked_at` older than `claim_timeout_seconds`) are re-queued. Backoff sets `not_before`.
 - Processing one item: `read_raw` → `analyze(parse(data))` (in a thread) → upsert `Session`
   keyed on `recording_session` (superseded in place when the content differs) → `enrich` → upsert `Enrichment` → item `done`.
   A `Batch` becomes `done` when no item is queued or running.
@@ -234,15 +228,17 @@ take the store explicitly):
   `retry_failed(session, batch_id)`, `cancel_batch(session, batch_id)`, plus the storage helpers
   above and `upsert_enrichment`.
 
-## HTTP API (all JSON, no credentials: the service is for this machine only. A request for another
-host name gets `421`, a write from another origin `403`; see `api/local.py`)
+## HTTP API
+
+All JSON, no credentials: the service is for this machine only. A request for another host name
+gets `421`, a write from another origin `403`; see `api/local.py`.
 
 - `POST /batches` (multipart, field `files`, repeated) → `202 {id, accepted: [...], rejected:
   [{filename, reason}]}`; `422` if nothing accepted
 - `GET /batches/{id}` → `{id, status, counts: {queued, running, done, failed, cancelled},
   items: [{id, filename, status, attempts, error, session_id}]}`
 - `POST /batches/{id}/retry`, `POST /batches/{id}/cancel`
-- `GET /sessions?project=&agent=&model=&category=&outcome=&from=&to=&limit=&offset=` →
+- `GET /sessions?project=&agent=&model=&category=&outcome=&from=&to=&sort=&order=&limit=&offset=` →
   `{total, items: [SessionSummary]}`
 - `GET /sessions/{id}` → full record (metrics, risky actions, files touched, warnings, enrichment)
 - `GET /sessions/{id}/events?after_seq=&limit=` → a page of parsed events: fetch the file with `read_raw`,
@@ -250,21 +246,19 @@ host name gets `421`, a write from another origin `403`; see `api/local.py`)
   the raw recording has expired or been deleted
 - `POST /sessions/{id}/enrich` (overwrites), `DELETE /sessions/{id}`
 - `GET /settings` → `{enricher, anthropic_api_key: {set, source: settings|environment|null}, anthropic_model, anthropic_workspace_id, ollama_url, ollama_model, overridden}`; the key is never returned
-- `PUT /settings` — send only what changes; `null` removes an override (the environment's value applies again). `422` for an `anthropic` enricher with no key, an Ollama URL that is not this machine, or whitespace in the key. Stored in `app_settings`; `DynamicEnricher` (`runtime_settings.py`) re-reads it every 2 s in both the API and the worker
-- `GET /stats/trends?project=&interval=day|week` →
+- `PUT /settings`: send only what changes; `null` removes an override (the environment's value applies again). `422` for an `anthropic` enricher with no key, an Ollama URL that is not this machine, or whitespace in the key. Stored in `app_settings`; `DynamicEnricher` (`runtime_settings.py`) re-reads it every 2 s in both the API and the worker
+- `GET /stats/trends?project=&interval=day|week&from=&to=` →
   `[{bucket, sessions, outcomes: {...}, avg_frustration, tool_error_rate}]`
 - `GET /stats/compare?by=agent|model` →
   `[{key, sessions, outcomes: {...}, tool_error_rate, permission_denial_rate, avg_frustration}]`
 - `GET /stats/usage` → `{input_tokens, output_tokens, enrichments}`
 - `GET /healthz` (process up), `GET /readyz` (DB and `store.ping()` reachable), `GET /metrics` (Prometheus)
-- The static UI is served from `/` by the API app (`StaticFiles` over `lens/web/`).
+- The static UI is served from `/` by the API app (the `WebFiles` handler over `lens/web/`).
 
 ## Rules for every component
 
 - Python 3.12, fully typed (`mypy --strict` clean), `ruff` clean, tests with `pytest`.
-- Tests that need a database use MySQL via `DATABASE_URL` (docker compose), never SQLite. Tests
-  that need the object store use SeaweedFS from docker compose (`S3_ENDPOINT_URL`), never a mock of
-  the S3 API; unit tests of other components may use an in-memory `RecordingStore` fake.
+- Tests that need a database use a real SQLite file built from the Alembic migration (see
+  `tests/conftest.py`), not a mock. Unit tests of other components may use the in-memory
+  `RecordingStore` fake.
 - Logs carry ids and counts only. Never log recording content, prompts or messages.
-- Commit on your own branch with clear messages. Do not push, merge, or touch other
-  components' files.
