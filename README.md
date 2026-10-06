@@ -47,7 +47,7 @@ stays on the machine, and lens keeps to it:
   loopback; its HTTP client ignores proxy variables and does not follow redirects. With either, the
   program makes no outbound network calls.
 - **Anthropic is an explicit opt-in.** Choose it in the Settings page, or set `ENRICHER=anthropic`
-  and `ANTHROPIC_API_KEY` (the model is `ANTHROPIC_MODEL`, default `claude-haiku-4-5`). A key entered
+  and `ANTHROPIC_API_KEY` (the model is `ANTHROPIC_MODEL`, default `claude-haiku-4-5`; a key not tied to one workspace also needs `ANTHROPIC_WORKSPACE_ID`). A key entered
   in Settings is stored in the local database in plain text, like the `.env` it stands in for. It is
   write-only: the API says only whether one is set and where it came from. Once chosen, each
   session's bounded digest (your prompts, the agent's final messages, trimmed failing output and the
@@ -61,7 +61,7 @@ stays on the machine, and lens keeps to it:
   `127.0.0.1`, `localhost`, `::1`), and a write that carries a foreign `Origin` (or `null`, or
   `Sec-Fetch-Site: cross-site`) is refused. There are no CORS headers. `curl` and scripts, which send
   neither header, work as they are.
-- **No residue.** Responses carry `Cache-Control: no-store`; logs hold ids and counts, never content,
+- **No residue.** API responses carry `Cache-Control: no-store` (the UI files are revalidated each time, so an upgrade is never stale); logs hold ids and counts, never content,
   file names or query strings; the UI makes no external requests (a test enforces it) and sends no
   referrer.
 - **Visible.** The footer says "Local only · storage: filesystem · enrichment: mock · raw kept 30

@@ -54,7 +54,10 @@ class AnthropicEnricher:
             "ENRICHER=anthropic: session digests are sent to the Anthropic API",
             extra={"model": settings.anthropic_model},
         )
-        return cls(anthropic.AsyncAnthropic(api_key=key), settings.anthropic_model)
+        workspace = (settings.anthropic_workspace_id or "").strip()
+        headers = {"anthropic-workspace-id": workspace} if workspace else None
+        client = anthropic.AsyncAnthropic(api_key=key, default_headers=headers)
+        return cls(client, settings.anthropic_model)
 
     async def enrich(self, analysis: Analysis) -> EnrichmentResult:
         user_message = build_user_message(analysis)
@@ -153,5 +156,19 @@ class AnthropicEnricher:
         except anthropic.APIStatusError as exc:
             retryable = exc.status_code >= 500 or exc.status_code in (408, 409, 529)
             raise EnrichmentError(
-                f"Anthropic API error status={exc.status_code}", retryable=retryable
+                f"Anthropic API error status={exc.status_code}{_reason(exc)}", retryable=retryable
             ) from exc
+
+
+def _reason(exc: anthropic.APIStatusError) -> str:
+    """The API's own account of a rejection, such as ` (invalid_request_error: ...)`.
+
+    It describes the request's shape, not its content, and is clipped to stay short.
+    """
+    error = exc.body.get("error") if isinstance(exc.body, dict) else None
+    if not isinstance(error, dict):
+        return ""
+    kind, message = error.get("type"), error.get("message")
+    if not isinstance(message, str):
+        return ""
+    return f" ({kind if isinstance(kind, str) else 'error'}: {message[:200]})"

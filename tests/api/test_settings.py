@@ -26,10 +26,23 @@ async def test_defaults_come_from_the_environment(client: httpx.AsyncClient) -> 
         "enricher": "mock",
         "anthropic_api_key": {"set": False, "source": None},
         "anthropic_model": "claude-haiku-4-5",
+        "anthropic_workspace_id": None,
         "ollama_url": "http://127.0.0.1:11434",
         "ollama_model": "llama3.1:8b",
         "overridden": [],
     }
+
+
+async def test_the_workspace_id_is_saved_trimmed_and_can_be_removed(
+    client: httpx.AsyncClient,
+) -> None:
+    body = (await client.put("/settings", json={"anthropic_workspace_id": " wrkspc_1 "})).json()
+    assert body["anthropic_workspace_id"] == "wrkspc_1"
+    assert body["overridden"] == ["anthropic_workspace_id"]
+    resp = await client.put("/settings", json={"anthropic_workspace_id": "two words"})
+    assert resp.status_code == 422
+    body = (await client.put("/settings", json={"anthropic_workspace_id": None})).json()
+    assert body["anthropic_workspace_id"] is None
 
 
 async def test_a_key_is_stored_but_never_returned_or_logged(

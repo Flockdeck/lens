@@ -141,6 +141,16 @@ async def test_api_errors_are_mapped(
     assert len(client.calls) == 1
 
 
+async def test_a_rejection_says_why_in_the_apis_words(make_analysis: Callable[..., Any]) -> None:
+    body = {"error": {"type": "invalid_request_error", "message": "messages: bad " + "x" * 500}}
+    client = FakeClient(anthropic.BadRequestError("x", response=_response(400), body=body))
+    with pytest.raises(EnrichmentError) as exc:
+        await AnthropicEnricher(client, "m").enrich(make_analysis())
+    text = str(exc.value)
+    assert text.startswith("Anthropic API error status=400 (invalid_request_error: messages: bad")
+    assert len(text) < 300
+
+
 async def test_content_never_logged_or_in_errors(
     make_analysis: Callable[..., Any], caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -221,6 +231,19 @@ def test_from_settings_passes_model_through() -> None:
         Settings(enricher="anthropic", anthropic_api_key="k", anthropic_model="claude-x-1")
     )
     assert e._model == "claude-x-1"
+
+
+@pytest.mark.parametrize(
+    ("workspace", "sent"),
+    [("wrkspc_1", "wrkspc_1"), (" wrkspc_1 ", "wrkspc_1"), ("", None), (None, None)],
+)
+def test_the_workspace_id_is_sent_as_a_header_only_when_set(
+    workspace: str | None, sent: str | None
+) -> None:
+    e = AnthropicEnricher.from_settings(
+        Settings(enricher="anthropic", anthropic_api_key="k", anthropic_workspace_id=workspace)
+    )
+    assert e._client.default_headers.get("anthropic-workspace-id") == sent
 
 
 def test_build_enricher_anthropic_requires_key() -> None:

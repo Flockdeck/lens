@@ -39,6 +39,7 @@ class SettingsView(BaseModel):
     enricher: Literal["mock", "ollama", "anthropic"]
     anthropic_api_key: KeyState
     anthropic_model: str
+    anthropic_workspace_id: str | None
     ollama_url: str
     ollama_model: str
     # Names of the settings changed here (the rest come from the environment).
@@ -53,6 +54,7 @@ class SettingsUpdate(BaseModel):
     enricher: Literal["mock", "ollama", "anthropic"] | None = None
     anthropic_api_key: str | None = Field(default=None, max_length=MAX_KEY_CHARS)
     anthropic_model: str | None = Field(default=None, max_length=MAX_NAME_CHARS)
+    anthropic_workspace_id: str | None = Field(default=None, max_length=MAX_NAME_CHARS)
     ollama_url: str | None = Field(default=None, max_length=MAX_NAME_CHARS * 2)
     ollama_model: str | None = Field(default=None, max_length=MAX_NAME_CHARS)
 
@@ -69,6 +71,7 @@ def _view(base: Settings, overrides: dict[str, str]) -> SettingsView:
         enricher=effective.enricher,
         anthropic_api_key=KeyState(set=source is not None, source=source),
         anthropic_model=effective.anthropic_model,
+        anthropic_workspace_id=effective.anthropic_workspace_id,
         ollama_url=effective.ollama_url,
         ollama_model=effective.ollama_model,
         overridden=sorted(overrides),
@@ -102,6 +105,9 @@ async def update_settings(
     key = changes.get("anthropic_api_key")
     if key is not None and any(c.isspace() for c in key):
         raise HTTPException(422, "the API key has whitespace in it")
+    workspace = changes.get("anthropic_workspace_id")
+    if workspace is not None and any(c.isspace() for c in workspace):
+        raise HTTPException(422, "the workspace ID has whitespace in it")
     url = changes.get("ollama_url")
     if url is not None:
         try:

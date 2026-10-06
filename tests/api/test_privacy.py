@@ -44,6 +44,21 @@ async def test_probes_and_ui_are_not_marked_no_store(client: httpx.AsyncClient) 
     assert "cache-control" not in (await client.get("/healthz")).headers
 
 
+async def test_the_ui_files_are_revalidated_so_an_upgrade_is_never_stale(
+    client: httpx.AsyncClient,
+) -> None:
+    first = await client.get("/js/views/settings.js")
+    assert first.status_code == 200
+    assert first.headers["cache-control"] == "no-cache"  # not stored blindly, not "no-store"
+    assert (await client.get("/")).headers["cache-control"] == "no-cache"
+    # Unchanged files still cost almost nothing: the browser's check is answered with a 304.
+    again = await client.get(
+        "/js/views/settings.js", headers={"If-None-Match": first.headers["etag"]}
+    )
+    assert again.status_code == 304
+    assert again.headers["cache-control"] == "no-cache"
+
+
 async def test_logs_never_contain_query_strings_or_filenames(
     client: httpx.AsyncClient,
     db: AsyncSession,

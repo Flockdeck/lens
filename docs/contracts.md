@@ -249,7 +249,7 @@ host name gets `421`, a write from another origin `403`; see `api/local.py`)
   `parse` it, keep events with `seq > after_seq`, return `{items, next_after_seq}`; `410` once
   the raw recording has expired or been deleted
 - `POST /sessions/{id}/enrich` (overwrites), `DELETE /sessions/{id}`
-- `GET /settings` → `{enricher, anthropic_api_key: {set, source: settings|environment|null}, anthropic_model, ollama_url, ollama_model, overridden}`; the key is never returned
+- `GET /settings` → `{enricher, anthropic_api_key: {set, source: settings|environment|null}, anthropic_model, anthropic_workspace_id, ollama_url, ollama_model, overridden}`; the key is never returned
 - `PUT /settings` — send only what changes; `null` removes an override (the environment's value applies again). `422` for an `anthropic` enricher with no key, an Ollama URL that is not this machine, or whitespace in the key. Stored in `app_settings`; `DynamicEnricher` (`runtime_settings.py`) re-reads it every 2 s in both the API and the worker
 - `GET /stats/trends?project=&interval=day|week` →
   `[{bucket, sessions, outcomes: {...}, avg_frustration, tool_error_rate}]`

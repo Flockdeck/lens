@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     enricher: Literal["mock", "ollama", "anthropic"] = "mock"
     anthropic_api_key: SecretStr | None = None  # ANTHROPIC_API_KEY; never logged or returned
     anthropic_model: str = "claude-haiku-4-5"
+    # ANTHROPIC_WORKSPACE_ID: only for a key that is not scoped to one workspace.
+    anthropic_workspace_id: str | None = None
     # Local only: the URL must be this machine (checked when the enricher is built).
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.1:8b"

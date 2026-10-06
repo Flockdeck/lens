@@ -2,7 +2,8 @@
 processes) see the same values, and they override the environment. Deleting an override puts the
 environment's value back.
 
-Only enrichment is editable: which enricher, the Anthropic key and model, the Ollama URL and model.
+Only enrichment is editable: which enricher, the Anthropic key, model and workspace, and the
+Ollama URL and model.
 """
 
 from __future__ import annotations
@@ -23,7 +24,14 @@ from lens.recording.models import Analysis
 
 log = logging.getLogger(__name__)
 
-EDITABLE = ("enricher", "anthropic_api_key", "anthropic_model", "ollama_url", "ollama_model")
+EDITABLE = (
+    "enricher",
+    "anthropic_api_key",
+    "anthropic_model",
+    "anthropic_workspace_id",
+    "ollama_url",
+    "ollama_model",
+)
 ENRICHERS = ("mock", "ollama", "anthropic")
 
 
@@ -76,7 +84,7 @@ def key_source(base: Settings, overrides: dict[str, str]) -> str | None:
 def _fingerprint(s: Settings) -> tuple[Any, ...]:
     key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
     if s.enricher == "anthropic":
-        return ("anthropic", key, s.anthropic_model)
+        return ("anthropic", key, s.anthropic_model, s.anthropic_workspace_id)
     if s.enricher == "ollama":
         return ("ollama", s.ollama_url, s.ollama_model, s.ollama_timeout_seconds)
     return ("mock",)

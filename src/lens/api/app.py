@@ -66,12 +66,17 @@ def warn_if_not_loopback(host: str) -> bool:
 
 
 class WebFiles(StaticFiles):
-    """StaticFiles that never serves the package's Python sources."""
+    """StaticFiles that never serves the package's Python sources, and that makes the browser
+    check with the server each time (a cheap 304 when nothing changed), so an upgraded program
+    never runs against the scripts of the old one."""
 
     async def get_response(self, path: str, scope: Scope) -> StarletteResponse:
         if path.endswith(_HIDDEN_SUFFIXES):
-            return await super().get_response("\0not-found", scope)
-        return await super().get_response(path, scope)
+            response = await super().get_response("\0not-found", scope)
+        else:
+            response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def create_app(settings: Settings | None = None, *, run_worker: bool = False) -> FastAPI:
