@@ -180,6 +180,7 @@ class State:
             "enricher": "mock",
             "anthropic_api_key": {"set": False, "source": None},
             "anthropic_model": "claude-haiku-4-5",
+            "anthropic_workspace_id": None,
             "ollama_url": "http://127.0.0.1:11434",
             "ollama_model": "llama3.1:8b",
             "overridden": [],
@@ -353,6 +354,8 @@ class Handler(BaseHTTPRequestHandler):
                 for name in ("enricher", "anthropic_model", "ollama_url", "ollama_model"):
                     if body.get(name):
                         st.settings[name] = body[name]
+                if "anthropic_workspace_id" in body:
+                    st.settings["anthropic_workspace_id"] = body["anthropic_workspace_id"]
                 st.config["enricher"] = st.settings["enricher"]
                 return self.send_json(200, st.settings)
         self.send_json(404, {"detail": "Not Found"})

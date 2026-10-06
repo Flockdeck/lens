@@ -37,6 +37,7 @@ export function render(root) {
       id: "s-key", name: "anthropic_api_key", type: "password", autocomplete: "new-password", spellcheck: "false",
       placeholder: s.anthropic_api_key.set ? "A key is set. Type here to replace it." : "sk-ant-...",
     });
+    const workspace = h("input", { id: "s-workspace", name: "anthropic_workspace_id", type: "text", value: s.anthropic_workspace_id || "", autocomplete: "off", spellcheck: "false", placeholder: "wrkspc_..." });
     const ollamaUrl = h("input", { id: "s-ourl", name: "ollama_url", type: "text", value: s.ollama_url, autocomplete: "off", spellcheck: "false" });
     const ollamaModel = h("input", { id: "s-omodel", name: "ollama_model", type: "text", value: s.ollama_model, autocomplete: "off", spellcheck: "false" });
     const removeKey = h("button", { type: "button", class: "btn btn-danger-quiet" }, "Remove saved key");
@@ -52,7 +53,9 @@ export function render(root) {
       h("legend", null, "Anthropic"),
       field("s-key", "API key", key,
         s.anthropic_api_key.set ? `${KEY_SOURCE[s.anthropic_api_key.source]} It is never shown again.` : "Stored in this machine's database and never shown again."),
-      field("s-model", "Model", model));
+      field("s-model", "Model", model),
+      field("s-workspace", "Workspace ID (optional)", workspace,
+        "Only for a key that is not tied to one workspace. Leave empty otherwise."));
     const ollama = h("fieldset", { class: "settings-group" },
       h("legend", null, "Ollama"),
       field("s-ourl", "URL", ollamaUrl, "Must be this machine: 127.0.0.1, localhost, ::1 or host.docker.internal."),
@@ -83,7 +86,7 @@ export function render(root) {
     const form = h("form", { class: "settings", novalidate: true,
       onsubmit: (ev) => {
         ev.preventDefault();
-        const update = { enricher: enricher.value, anthropic_model: model.value.trim(), ollama_url: ollamaUrl.value.trim(), ollama_model: ollamaModel.value.trim() };
+        const update = { enricher: enricher.value, anthropic_model: model.value.trim(), anthropic_workspace_id: workspace.value.trim() || null, ollama_url: ollamaUrl.value.trim(), ollama_model: ollamaModel.value.trim() };
         if (key.value.trim()) update.anthropic_api_key = key.value.trim();
         return withBusy(save, () => put(update, "Settings saved"));
       } },
