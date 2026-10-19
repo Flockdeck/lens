@@ -13,7 +13,7 @@ code_paths: [src/lens/api/schemas.py]
 | `BatchAccepted` | [POST /batches](/api/batches-submit.md) | `id`, `accepted` (names), `rejected` |
 | `BatchItemOut` | batch views | `id`, `filename`, `status`, `attempts`, `error`, `session_id` |
 | `BatchOut` | [batch endpoints](/api/batches-get.md) | `id`, `status`, `counts` (per item status), `items` |
-| `EnrichmentOut` | session detail | all [enrichment](/data/table-enrichments.md) fields plus `created_at` |
+| `EnrichmentOut` | session detail | all [enrichment](/tables/table-enrichments.md) fields plus `created_at` |
 | `SessionSummary` | [list](/api/sessions-list.md) | session columns, `duration_seconds`, `tool_calls`, `raw_available`, and category, outcome, frustration, summary from the enrichment |
 | `SessionList` | list | `total`, `items` |
 | `SessionDetail` | [detail](/api/sessions-get.md) | summary plus `metrics`, `risky_actions`, `files_touched`, `warnings`, `enrichment` |

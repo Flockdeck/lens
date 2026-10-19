@@ -18,6 +18,6 @@ code_paths: [Makefile]
 | `e2e` | `pytest tests/e2e -m "not browser"` |
 | `e2e-browser` | `pytest tests/e2e -m browser` (needs Edge or `playwright install chromium`) |
 | `check` | lint, typecheck, test |
-| `binary` | PyInstaller build ([spec](/build/pyinstaller-spec.md)) |
+| `binary` | PyInstaller build ([spec](/release/pyinstaller-spec.md)) |
 | `smoke` | binary, then [smoke test](/tools/smoke-test.md) |
 | `clean` | remove `dist` and `build` |

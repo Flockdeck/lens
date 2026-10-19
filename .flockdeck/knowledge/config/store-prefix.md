@@ -11,4 +11,4 @@ Default: `recordings/`.
 
 Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
 
-Joined to the date path by plain concatenation (`<prefix>YYYY/MM/<uuid>.jsonl`), so a custom value needs its own trailing slash ([object key](/data/object-key.md)). `lens check-storage` probes under `<prefix>probe/`.
+Joined to the date path by plain concatenation (`<prefix>YYYY/MM/<uuid>.jsonl`), so a custom value needs its own trailing slash ([object key](/tables/object-key.md)). `lens check-storage` probes under `<prefix>probe/`.

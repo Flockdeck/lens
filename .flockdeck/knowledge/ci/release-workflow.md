@@ -19,6 +19,6 @@ Jobs in order:
    - `release.py sums`, then `sign` and `verify` ([release script](/tools/release-script.md));
    - publish on GitHub first, deliberately: a pre-release (any tag containing `-`) is marked as one and never latest; a release older than the current latest gets `--latest=false` (repeated through the API and restored if it moved); an existing release gets its files uploaded with `--clobber`; notes come from `docs/releases/<tag>.md` if present, else generated; `latest.json` is not attached; if GitHub cannot be asked, nothing is published;
    - check the four `DO_SPACES_*` secrets are set and name all missing ones;
-   - run [publish-downloads.sh](/build/publish-downloads.md), read from the workflow's own commit.
+   - run [publish-downloads.sh](/release/publish-downloads.md), read from the workflow's own commit.
 
 Secrets handling: [workflow secrets](/security/workflow-secrets.md).

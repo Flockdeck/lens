@@ -13,6 +13,6 @@ code_paths: [src/lens/cli.py, src/lens/__main__.py, src/lens/_version.py, pyproj
 
 Commands: [serve](/cli/serve.md), [cleanup](/cli/cleanup.md), [check-storage](/cli/check-storage.md), [version](/cli/version.md).
 
-The version string comes from `src/lens/_version.py` (`__version__`, read with `app_version()`). The build rewrites that file from the release tag, see [version stamping](/build/version-stamp.md).
+The version string comes from `src/lens/_version.py` (`__version__`, read with `app_version()`). The build rewrites that file from the release tag, see [version stamping](/release/version-stamp.md).
 
 Package layout: `api/` (FastAPI app and routers), `db/` (SQLAlchemy models, engine, Alembic runner), `enrich/` (enrichers), `recording/` (parser and metrics), `storage/` (raw file store), `worker/` (queue, claim loop, cleanup), `web/` (static UI), `migrations/`, plus `config.py`, `runtime_settings.py` and `parent_watch.py`.

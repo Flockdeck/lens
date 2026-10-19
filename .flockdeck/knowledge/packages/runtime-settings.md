@@ -7,7 +7,7 @@ tags: [config, enrichment]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [src/lens/runtime_settings.py, src/lens/api/routers/settings.py]
 ---
-`EDITABLE` is the whitelist: `enricher`, `anthropic_api_key`, `anthropic_model`, `anthropic_workspace_id`, `ollama_url`, `ollama_model`. Values live as text rows in [app_settings](/data/table-app-settings.md).
+`EDITABLE` is the whitelist: `enricher`, `anthropic_api_key`, `anthropic_model`, `anthropic_workspace_id`, `ollama_url`, `ollama_model`. Values live as text rows in [app_settings](/tables/table-app-settings.md).
 
 - `load_overrides` reads the rows (only whitelisted keys). `save_overrides(changes)` sets a key, or deletes the row when the value is None; a key outside the list raises `ValueError`.
 - `apply_overrides(base, overrides)` returns a copy of `Settings` with the overrides applied; an unknown `enricher` value is dropped, and the key is wrapped in `SecretStr`.

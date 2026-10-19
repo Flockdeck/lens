@@ -11,4 +11,4 @@ code_paths: [src/lens/enrich/base.py, src/lens/enrich/__init__.py]
 
 `EnrichmentError(message, *, retryable, input_tokens=0, output_tokens=0)` carries whether a retry makes sense and the tokens spent on failed attempts. Messages never include recording content. Worker handling is in [retry classification](/packages/worker-retry.md).
 
-Result types are described in [EnrichmentResult](/data/enrichment-result.md). The wrapper used by the app is [DynamicEnricher](/packages/runtime-settings.md).
+Result types are described in [EnrichmentResult](/tables/enrichment-result.md). The wrapper used by the app is [DynamicEnricher](/packages/runtime-settings.md).

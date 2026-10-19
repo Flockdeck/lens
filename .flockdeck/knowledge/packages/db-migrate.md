@@ -11,4 +11,4 @@ code_paths: [src/lens/db/migrate.py, src/lens/migrations/env.py, src/lens/migrat
 
 `migrations/env.py` takes the URL from that attribute or else from `get_settings()`, builds the engine through `make_engine` (same pragmas), and configures `compare_type=True` and `render_as_batch=True` because SQLite cannot alter most things in place. Offline mode renders literal SQL.
 
-There is a single revision, [0001](/data/migration-0001.md). There is no separate migration command: [serve](/cli/serve.md) and [cleanup](/cli/cleanup.md) migrate on start. `alembic.ini` sets `script_location` to `src/lens/migrations` and `prepend_sys_path = src` for developer use.
+There is a single revision, [0001](/tables/migration-0001.md). There is no separate migration command: [serve](/cli/serve.md) and [cleanup](/cli/cleanup.md) migrate on start. `alembic.ini` sets `script_location` to `src/lens/migrations` and `prepend_sys_path = src` for developer use.

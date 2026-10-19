@@ -11,4 +11,4 @@ Protocol methods: `put(key, data)`, `get(key)` (raises `RecordingExpired` if mis
 
 `build_store(settings)` always returns a [FilesystemStore](/packages/storage-filesystem.md) rooted at `DATA_DIR` (home expanded). There is no other backend. `InMemoryStore` (`memory.py`) is a dict-backed test double with `fail_put` and `closed` flags.
 
-Keys look like `recordings/YYYY/MM/<uuid>.jsonl`, see [object key](/data/object-key.md).
+Keys look like `recordings/YYYY/MM/<uuid>.jsonl`, see [object key](/tables/object-key.md).

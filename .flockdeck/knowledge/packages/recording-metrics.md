@@ -7,7 +7,7 @@ tags: [recording, metrics]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [src/lens/recording/metrics.py]
 ---
-Output shape: [Metrics](/data/analysis-metrics.md) and [completeness](/data/completeness.md).
+Output shape: [Metrics](/tables/analysis-metrics.md) and [completeness](/tables/completeness.md).
 
 - Turns count `user_prompt` events that are not subagent prompts and not agent-generated text (see [format detection](/packages/recording-format.md)).
 - Tool errors do not include interrupted results; interruptions are counted separately.

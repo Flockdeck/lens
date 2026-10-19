@@ -13,4 +13,4 @@ code_paths: [src/lens/db/session.py]
 - On connect: `PRAGMA journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `busy_timeout=30000`; the driver's `isolation_level` is set to None so the app decides when a transaction begins.
 - On begin: `BEGIN IMMEDIATE`, unless the connection has the `deferred` execution option, in which case plain `BEGIN`.
 
-`make_sessionmaker` uses `expire_on_commit=False`. `read_sessionmaker` adds `deferred=True` for read-only use (GET requests, see [API deps](/packages/api-deps.md)). `get_engine`, `get_sessionmaker` (cached) and `dispose_engine` serve the CLI commands. Rationale in [SQLite transactions](/gotchas/sqlite-begin-immediate.md). Tables are in [data models](/data/table-sessions.md).
+`make_sessionmaker` uses `expire_on_commit=False`. `read_sessionmaker` adds `deferred=True` for read-only use (GET requests, see [API deps](/packages/api-deps.md)). `get_engine`, `get_sessionmaker` (cached) and `dispose_engine` serve the CLI commands. Rationale in [SQLite transactions](/gotchas/sqlite-begin-immediate.md). Tables are in [data models](/tables/table-sessions.md).

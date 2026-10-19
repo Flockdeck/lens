@@ -9,4 +9,4 @@ code_paths: [packaging/publish-downloads.sh]
 ---
 Default: unset.
 
-Optional input of `publish-downloads.sh` ([publish-downloads](/build/publish-downloads.md)).
+Optional input of `publish-downloads.sh` ([publish-downloads](/release/publish-downloads.md)).

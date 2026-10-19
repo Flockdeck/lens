@@ -16,4 +16,4 @@ code_paths: [src/lens/api/uploads.py, src/lens/api/limits.py, src/lens/api/route
 | file name | 255 characters, basename only | `clean_filename` |
 | type | `.jsonl` only | `check_file` |
 
-Only one file's bytes are held in memory at a time. The filename is reduced to a basename (backslashes treated as separators) and is never used as a path: files are stored under generated UUID keys ([object key](/data/object-key.md)).
+Only one file's bytes are held in memory at a time. The filename is reduced to a basename (backslashes treated as separators) and is never used as a path: files are stored under generated UUID keys ([object key](/tables/object-key.md)).

@@ -19,4 +19,4 @@ Query parameters:
 | `limit` | 1 to 200, default 50 |
 | `offset` | 0 or more |
 
-Sessions with a null `started_at` are excluded whenever `from` or `to` is given. NULLs sort last when descending and first when ascending; ties break on id descending. Response `SessionList`: `total` and `items` of `SessionSummary`, where `raw_available` is true while the raw row exists and is not expired. Sessions come from [sessions](/data/table-sessions.md) left-joined to [enrichments](/data/table-enrichments.md). Responses are `Cache-Control: no-store`.
+Sessions with a null `started_at` are excluded whenever `from` or `to` is given. NULLs sort last when descending and first when ascending; ties break on id descending. Response `SessionList`: `total` and `items` of `SessionSummary`, where `raw_available` is true while the raw row exists and is not expired. Sessions come from [sessions](/tables/table-sessions.md) left-joined to [enrichments](/tables/table-enrichments.md). Responses are `Cache-Control: no-store`.
