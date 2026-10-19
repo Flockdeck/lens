@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 268435456 (256 MiB).
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Enforced on streamed bytes by [BodySizeLimit](/packages/api-limits.md) (413) and again on the sum of accepted file sizes (extra files rejected with `request size limit exceeded`).
+Enforced on streamed bytes by [BodySizeLimit](../packages/api-limits.md) (413) and again on the sum of accepted file sizes (extra files rejected with `request size limit exceeded`).

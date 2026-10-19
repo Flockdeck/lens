@@ -13,7 +13,7 @@ Validation (422 on failure):
 
 - A string value is stripped and may not become empty.
 - The API key and the workspace id may not contain whitespace.
-- `ollama_url` must pass `require_local_url` ([Ollama local URL](/security/ollama-local-url.md)); the stored value has no trailing slash.
+- `ollama_url` must pass `require_local_url` ([Ollama local URL](../security/ollama-local-url.md)); the stored value has no trailing slash.
 - If the result would select the `anthropic` enricher with no key from either source: `the anthropic enricher needs an API key`.
 
-Changes are saved to [app_settings](/tables/table-app-settings.md). The log line lists names only. Returns the new `SettingsView`. The worker picks the change up within about 2 seconds ([DynamicEnricher](/packages/runtime-settings.md)).
+Changes are saved to [app_settings](../tables/table-app-settings.md). The log line lists names only. Returns the new `SettingsView`. The worker picks the change up within about 2 seconds ([DynamicEnricher](../packages/runtime-settings.md)).

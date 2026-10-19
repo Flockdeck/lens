@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 17825792 (17 MiB).
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-The Flockdeck recorder caps a recording at 16 MiB; this leaves some room. Larger files are rejected per file with `too large` ([uploads](/packages/api-uploads.md)). The UI mirrors the default in `lib.js` ([web lib](/packages/web-lib.md)), so changing the server value does not change the UI pre-check.
+The Flockdeck recorder caps a recording at 16 MiB; this leaves some room. Larger files are rejected per file with `too large` ([uploads](../packages/api-uploads.md)). The UI mirrors the default in `lib.js` ([web lib](../packages/web-lib.md)), so changing the server value does not change the UI pre-check.

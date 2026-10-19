@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 1.0.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-The loop also wakes early when an in-flight item finishes or stop is requested ([worker loop](/packages/worker-loop.md)). The smoke test sets 0.1.
+The loop also wakes early when an in-flight item finishes or stop is requested ([worker loop](../packages/worker-loop.md)). The smoke test sets 0.1.

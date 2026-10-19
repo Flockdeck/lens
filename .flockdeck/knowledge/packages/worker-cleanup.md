@@ -11,4 +11,4 @@ code_paths: [src/lens/worker/cleanup.py]
 - `delete_old_batches`: deletes batches that are `done` or `cancelled`, older than 90 days (`BATCH_RETENTION_DAYS`) with no queued or running item, 1000 at a time; items go by cascade.
 - `run_cleanup` holds a module-level `asyncio.Lock`; if it is already held it returns `CleanupResult(skipped=True)`. The lock is per process, not a database lock.
 
-Triggered by the worker timer ([CLEANUP_INTERVAL_SECONDS](/config/cleanup-interval-seconds.md)) and by [lens cleanup](/cli/cleanup.md). The age is [RAW_RETENTION_DAYS](/config/raw-retention-days.md).
+Triggered by the worker timer ([CLEANUP_INTERVAL_SECONDS](../config/cleanup-interval-seconds.md)) and by [lens cleanup](../cli/cleanup.md). The age is [RAW_RETENTION_DAYS](../config/raw-retention-days.md).

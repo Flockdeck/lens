@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 100.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Passed to the multipart parser as `max_files`; exceeding it gives 400 `malformed multipart request` ([POST /batches](/api/batches-submit.md)). The UI pre-check uses a fixed 100.
+Passed to the multipart parser as `max_files`; exceeding it gives 400 `malformed multipart request` ([POST /batches](../api/batches-submit.md)). The UI pre-check uses a fixed 100.

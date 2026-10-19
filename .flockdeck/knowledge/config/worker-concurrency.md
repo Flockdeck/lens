@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 4.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Upper bound on in-flight items in the [worker loop](/packages/worker-loop.md).
+Upper bound on in-flight items in the [worker loop](../packages/worker-loop.md).

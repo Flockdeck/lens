@@ -11,14 +11,14 @@ code_paths: [src/lens/api/app.py]
 
 ## What it sets up
 
-- `setup_logging` and one SQLAlchemy engine from [db session](/packages/db-session.md). The app state holds `settings`, `engine`, `sessionmaker` (writes), `read_sessionmaker` (GET and HEAD) and a Prometheus `registry`.
-- Interactive docs are off: `docs_url`, `redoc_url` and `openapi_url` are `None` (see [no docs endpoints](/security/no-interactive-docs.md)).
-- Middleware, innermost first: [BodySizeLimit](/packages/api-limits.md) for `POST /batches`, the `observe` HTTP middleware, then [LocalOnly](/packages/api-local.md) as the outermost layer.
+- `setup_logging` and one SQLAlchemy engine from [db session](db-session.md). The app state holds `settings`, `engine`, `sessionmaker` (writes), `read_sessionmaker` (GET and HEAD) and a Prometheus `registry`.
+- Interactive docs are off: `docs_url`, `redoc_url` and `openapi_url` are `None` (see [no docs endpoints](../security/no-interactive-docs.md)).
+- Middleware, innermost first: [BodySizeLimit](api-limits.md) for `POST /batches`, the `observe` HTTP middleware, then [LocalOnly](api-local.md) as the outermost layer.
 - Routers: health, batches, sessions, stats, config, settings. The static web UI is mounted at `/` last, through `WebFiles`.
 
 ## Lifespan
 
-With `run_worker=True` (what [serve](/cli/serve.md) passes) startup runs `upgrade_async` ([migrations](/packages/db-migrate.md)), builds the file store, creates a `DynamicEnricher` ([runtime settings](/packages/runtime-settings.md)) and starts the [worker loop](/packages/worker-loop.md) as an asyncio task. On shutdown it sets the stop event, awaits the worker (in-flight items get the grace period), closes the store if one was built, and disposes the engine. Tests leave `run_worker` off.
+With `run_worker=True` (what [serve](../cli/serve.md) passes) startup runs `upgrade_async` ([migrations](db-migrate.md)), builds the file store, creates a `DynamicEnricher` ([runtime settings](runtime-settings.md)) and starts the [worker loop](worker-loop.md) as an asyncio task. On shutdown it sets the stop event, awaits the worker (in-flight items get the grace period), closes the store if one was built, and disposes the engine. Tests leave `run_worker` off.
 
 ## observe middleware
 
@@ -28,4 +28,4 @@ Each request gets a random hex `X-Request-ID`. Unhandled exceptions are logged w
 
 A `StaticFiles` subclass that returns 404 for `.py` and `.pyc` paths (the web directory is a Python package) and sets `Cache-Control: no-cache` on everything, so an upgraded binary never serves old scripts.
 
-`warn_if_not_loopback(host)` logs a warning and returns True when the bind host is not loopback ([non-loopback bind](/security/loopback-bind.md)).
+`warn_if_not_loopback(host)` logs a warning and returns True when the bind host is not loopback ([non-loopback bind](../security/loopback-bind.md)).

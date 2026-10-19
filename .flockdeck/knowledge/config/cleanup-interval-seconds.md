@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 3600.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Reported as `cleanup_interval_seconds` by [GET /config](/api/config-get.md). The manual command is [lens cleanup](/cli/cleanup.md); the work is described in [cleanup](/packages/worker-cleanup.md).
+Reported as `cleanup_interval_seconds` by [GET /config](../api/config-get.md). The manual command is [lens cleanup](../cli/cleanup.md); the work is described in [cleanup](../packages/worker-cleanup.md).

@@ -19,4 +19,4 @@ code_paths: [src/lens/worker/retry.py]
 
 Only exception types with controlled messages keep their text; others (such as validation errors) can echo recording content, so only the type name is stored. Messages are cut to 500 characters.
 
-`backoff_seconds(attempt)`: delay = `min(300, 5 * 2^(attempt-1))` seconds, then half of it fixed plus a uniform random value up to the other half ("equal jitter"). Retries stop at [MAX_ATTEMPTS](/config/max-attempts.md).
+`backoff_seconds(attempt)`: delay = `min(300, 5 * 2^(attempt-1))` seconds, then half of it fixed plus a uniform random value up to the other half ("equal jitter"). Retries stop at [MAX_ATTEMPTS](../config/max-attempts.md).

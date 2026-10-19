@@ -9,4 +9,4 @@ code_paths: [packaging/publish-downloads.sh]
 ---
 Default: `https://$DO_SPACES_REGION.digitaloceanspaces.com`.
 
-Optional input of `publish-downloads.sh` ([publish-downloads](/release/publish-downloads.md)).
+Optional input of `publish-downloads.sh` ([publish-downloads](../release/publish-downloads.md)).

@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 30.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-After this age the stored file is deleted and the raw row marked expired; sessions, metrics and enrichments stay ([cleanup](/packages/worker-cleanup.md)). The UI shows the value and the expiry text ([web lib](/packages/web-lib.md)); the value is set on the server only.
+After this age the stored file is deleted and the raw row marked expired; sessions, metrics and enrichments stay ([cleanup](../packages/worker-cleanup.md)). The UI shows the value and the expiry text ([web lib](../packages/web-lib.md)); the value is set on the server only.

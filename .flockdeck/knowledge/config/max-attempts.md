@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 4.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Attempts are counted when an item is claimed. Applies to retryable failures ([retry](/packages/worker-retry.md)) and to stale claims ([recover_stale](/packages/worker-loop.md)). A manual retry resets the count.
+Attempts are counted when an item is claimed. Applies to retryable failures ([retry](../packages/worker-retry.md)) and to stale claims ([recover_stale](../packages/worker-loop.md)). A manual retry resets the count.

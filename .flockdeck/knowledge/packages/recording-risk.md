@@ -7,7 +7,7 @@ tags: [recording, risk, heuristics]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [src/lens/recording/risk.py]
 ---
-The module says it is heuristics, not a security boundary. `find_risky_actions(events)` examines each `tool_call` and returns [RiskyAction](/tables/risky-action.md) entries, at most one per rule per call (the most severe hit).
+The module says it is heuristics, not a security boundary. `find_risky_actions(events)` examines each `tool_call` and returns [RiskyAction](../tables/risky-action.md) entries, at most one per rule per call (the most severe hit).
 
 Bash commands are split on `&&`, `||`, `;`, `&`, `|` and newlines, tokenised with shlex, and `sudo`, `time`, `env`, `command` wrappers are peeled off.
 

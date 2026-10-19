@@ -14,12 +14,12 @@ code_paths: [src/lens/db/models.py, src/lens/migrations/versions/0001_initial_sc
 | `project`, `agent`, `model` | indexed, nullable |
 | `pane`, `pane_name` | pane id (a conversation id for transcript files), pane name |
 | `started_at` (indexed), `ended_at` | naive UTC, nullable |
-| `completeness` | `clean`, `truncated`, `cut_off`, `partial_agent` ([values](/tables/completeness.md)) |
-| `metrics` | JSON, see [Metrics](/tables/analysis-metrics.md) |
-| `risky_actions` | JSON list, see [risky action](/tables/risky-action.md) |
+| `completeness` | `clean`, `truncated`, `cut_off`, `partial_agent` ([values](completeness.md)) |
+| `metrics` | JSON, see [Metrics](analysis-metrics.md) |
+| `risky_actions` | JSON list, see [risky action](risky-action.md) |
 | `files_touched` | JSON `{read, edited, commands, *_total}` |
 | `warnings` | JSON list of strings |
 | `raw_id` | FK to raw_recordings, `SET NULL` |
 | `created_at` | upload processing time |
 
-A later upload of the same recording session overwrites the row in place ([processor](/packages/worker-processor.md)). Has at most one [enrichment](/tables/table-enrichments.md).
+A later upload of the same recording session overwrites the row in place ([processor](../packages/worker-processor.md)). Has at most one [enrichment](table-enrichments.md).

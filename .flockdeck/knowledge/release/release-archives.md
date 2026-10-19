@@ -11,4 +11,4 @@ Name: `lens_<tag>_<goos>_<goarch>.<ext>` with `tar.gz` for Linux and macOS and `
 
 Contents of the folder `lens_<tag>_<os>_<arch>/`: the executable (`lens` or `lens.exe`), `README.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md`. On Unix the binary gets mode +x. The archive is uploaded as an artifact with the same name; `if-no-files-found: error`, retention 3 days by default and 30 days from the release workflow.
 
-`release.py sums` then lists every archive in `checksums.txt` ([checksums](/tables/release-checksums.md)).
+`release.py sums` then lists every archive in `checksums.txt` ([checksums](../tables/release-checksums.md)).

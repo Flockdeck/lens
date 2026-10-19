@@ -7,4 +7,4 @@ tags: [ci, security]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [.github/workflows/ci.yaml, uv.lock]
 ---
-`uv export --frozen --no-dev --no-hashes --no-emit-project` writes `runtime-requirements.txt`, then `uvx pip-audit --strict --no-deps --disable-pip -r` it. Dev dependencies are not audited. The weekly schedule of the [ci workflow](/ci/ci-workflow.md) exists to catch new advisories.
+`uv export --frozen --no-dev --no-hashes --no-emit-project` writes `runtime-requirements.txt`, then `uvx pip-audit --strict --no-deps --disable-pip -r` it. Dev dependencies are not audited. The weekly schedule of the [ci workflow](ci-workflow.md) exists to catch new advisories.

@@ -21,4 +21,4 @@ code_paths: [src/lens/db/models.py, src/lens/migrations/versions/0001_initial_sc
 | `session_id` | FK to sessions, `SET NULL`; set when the item finishes |
 | `created_at`, `updated_at` | naive UTC |
 
-Index on (`status`, `not_before`) serves the claim query. Behaviour in [worker loop](/packages/worker-loop.md) and [processor](/packages/worker-processor.md).
+Index on (`status`, `not_before`) serves the claim query. Behaviour in [worker loop](../packages/worker-loop.md) and [processor](../packages/worker-processor.md).

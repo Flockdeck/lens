@@ -7,7 +7,7 @@ tags: [security, middleware]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [src/lens/api/local.py]
 ---
-Implements the [local-only guard](/security/local-only-guard.md). `normalise_hosts` lower-cases names and strips brackets and ports, so `[::1]` and `::1` match. `LocalOnly(app, allowed_hosts)` handles only `http` scopes, so it also sees requests no route matches.
+Implements the [local-only guard](../security/local-only-guard.md). `normalise_hosts` lower-cases names and strips brackets and ports, so `[::1]` and `::1` match. `LocalOnly(app, allowed_hosts)` handles only `http` scopes, so it also sees requests no route matches.
 
 Order of checks:
 
@@ -15,4 +15,4 @@ Order of checks:
 2. For POST, PUT, PATCH and DELETE: an `Origin` that is not `null` whose host is not allowed: 403 `cross-origin request refused`.
 3. For the same methods: `Origin: null` or `Sec-Fetch-Site: cross-site`: 403 `cross-origin request refused`.
 
-Refusals carry `Cache-Control: no-store`, are logged with reason, method and status only (never the offending host or origin), and ports are ignored in all comparisons. The allowed set comes from [ALLOWED_HOSTS](/config/allowed-hosts.md).
+Refusals carry `Cache-Control: no-store`, are logged with reason, method and status only (never the offending host or origin), and ports are ignored in all comparisons. The allowed set comes from [ALLOWED_HOSTS](../config/allowed-hosts.md).

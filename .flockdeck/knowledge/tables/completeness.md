@@ -14,4 +14,4 @@ code_paths: [src/lens/recording/metrics.py, src/lens/recording/parser.py]
 | `cut_off` | last known event is anything else, or there is no known event |
 | `partial_agent` | last known is `recording_stopped` and every known event is a recorder line: the agent has no hooks and reports only start and stop |
 
-Events of unknown types are ignored when finding the end, so a newer trailing line does not turn a clean file into a cut-off one. Each non-clean value adds a [warning](/packages/recording-parser.md). The mock enricher treats `cut_off` as abandoned ([mock](/packages/enrich-mock.md)). Stored in [sessions](/tables/table-sessions.md).
+Events of unknown types are ignored when finding the end, so a newer trailing line does not turn a clean file into a cut-off one. Each non-clean value adds a [warning](../packages/recording-parser.md). The mock enricher treats `cut_off` as abandoned ([mock](../packages/enrich-mock.md)). Stored in [sessions](table-sessions.md).

@@ -18,6 +18,6 @@ code_paths: [src/lens/api/logging.py]
 | empty | yes | standard output |
 | empty | no | `<DATA_DIR>/lens.log` |
 
-File logs rotate at 5 MiB with 3 backups. See [LOG_FILE](/config/log-file.md) and [file logging when piped](/gotchas/log-file-when-piped.md).
+File logs rotate at 5 MiB with 3 backups. See [LOG_FILE](../config/log-file.md) and [file logging when piped](../gotchas/log-file-when-piped.md).
 
-`setup_logging(level, log_file, data_dir)` replaces the root handlers, sets the level, disables `uvicorn.access` (it logs query strings; the app logs its own request line) and calls `quiet_database_loggers`, which pins `aiosqlite` and `sqlalchemy.engine` to WARNING so statement parameters (an API key row, recording content) never reach a DEBUG log. See [log content policy](/security/log-content-policy.md).
+`setup_logging(level, log_file, data_dir)` replaces the root handlers, sets the level, disables `uvicorn.access` (it logs query strings; the app logs its own request line) and calls `quiet_database_loggers`, which pins `aiosqlite` and `sqlalchemy.engine` to WARNING so statement parameters (an API key row, recording content) never reach a DEBUG log. See [log content policy](../security/log-content-policy.md).

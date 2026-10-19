@@ -9,9 +9,9 @@ code_paths: [src/lens/api/logging.py, src/lens/api/app.py, tests/api/test_privac
 ---
 Rules visible in code:
 
-- Exceptions are logged as type plus `file:line function` frames, not messages, because messages can echo recording content ([formatter](/packages/api-logging.md)).
+- Exceptions are logged as type plus `file:line function` frames, not messages, because messages can echo recording content ([formatter](../packages/api-logging.md)).
 - The request log line has method, matched route pattern, status and duration; uvicorn's access log (which includes query strings) is disabled. A test asserts logs contain no query strings or filenames.
-- Refused requests log reason, method and status, not the Host or Origin ([guard](/security/local-only-guard.md)).
-- Item errors stored in the database are built by [classify](/packages/worker-retry.md): text only for exception types whose messages the code controls.
+- Refused requests log reason, method and status, not the Host or Origin ([guard](local-only-guard.md)).
+- Item errors stored in the database are built by [classify](../packages/worker-retry.md): text only for exception types whose messages the code controls.
 - Enrichment parse failures log counts and stop reasons only.
 - Database statement logging stays at WARNING.

@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: `127.0.0.1`.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Overridden by `--host`. Anything not loopback logs a warning ([loopback bind](/security/loopback-bind.md)); there is no API key, so binding wider exposes recordings to the network.
+Overridden by `--host`. Anything not loopback logs a warning ([loopback bind](../security/loopback-bind.md)); there is no API key, so binding wider exposes recordings to the network.

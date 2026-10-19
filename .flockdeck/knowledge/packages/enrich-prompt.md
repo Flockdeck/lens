@@ -22,4 +22,4 @@ code_paths: [src/lens/enrich/prompt.py]
 | `MAX_ITEM_CHARS` | 300 |
 | `MAX_DIGEST_CHARS` | 2000 per string |
 
-`build_user_message` renders `<facts>` (project, agent, model, completeness, start and end, metrics, capped risky actions, capped file lists with totals, capped warnings) and `<digest>` (see [digest](/packages/recording-digest.md)) as compact sorted JSON. `<`, `>` and `&` are replaced by unicode escapes so recording text cannot close a tag. `supplied_seqs` is the set of event seqs the prompt mentions; enrichers drop references to any other seq.
+`build_user_message` renders `<facts>` (project, agent, model, completeness, start and end, metrics, capped risky actions, capped file lists with totals, capped warnings) and `<digest>` (see [digest](recording-digest.md)) as compact sorted JSON. `<`, `>` and `&` are replaced by unicode escapes so recording text cannot close a tag. `supplied_seqs` is the set of event seqs the prompt mentions; enrichers drop references to any other seq.

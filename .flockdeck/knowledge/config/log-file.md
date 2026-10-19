@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: empty.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-Blank means standard output in a terminal and `<DATA_DIR>/lens.log` otherwise; files rotate at 5 MiB with 3 backups ([logging](/packages/api-logging.md)). The tests and the Flockdeck-style launch in the smoke test set `-`. See [file logging when piped](/gotchas/log-file-when-piped.md).
+Blank means standard output in a terminal and `<DATA_DIR>/lens.log` otherwise; files rotate at 5 MiB with 3 backups ([logging](../packages/api-logging.md)). The tests and the Flockdeck-style launch in the smoke test set `-`. See [file logging when piped](../gotchas/log-file-when-piped.md).

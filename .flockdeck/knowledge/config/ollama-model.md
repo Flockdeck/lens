@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: `llama3.1:8b`.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-A 404 from Ollama is reported as a permanent failure that names `ollama pull <model>` ([OllamaEnricher](/packages/enrich-ollama.md)).
+A 404 from Ollama is reported as a permanent failure that names `ollama pull <model>` ([OllamaEnricher](../packages/enrich-ollama.md)).

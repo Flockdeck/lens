@@ -18,4 +18,4 @@ code_paths: [tests/conftest.py, tests/dbutil.py, tests/api/conftest.py, tests/e2
 | `tests/web` | JS helpers and module parse checks under node, design-token checks, a fake API server |
 | `tests/test_legal.py` | licence and notices consistency |
 
-`tests/conftest.py` builds one throwaway SQLite database by running the real Alembic migration, and pins `LOG_FILE=-`, `ENRICHER=mock`, an empty `ANTHROPIC_API_KEY` and the Ollama and model defaults so a developer's `.env` cannot make tests call the API ([dotenv](/config/dotenv-file.md)). Fixtures: [test fixtures](/tools/test-fixtures.md). Run in CI by the [test job](/ci/test-matrix.md).
+`tests/conftest.py` builds one throwaway SQLite database by running the real Alembic migration, and pins `LOG_FILE=-`, `ENRICHER=mock`, an empty `ANTHROPIC_API_KEY` and the Ollama and model defaults so a developer's `.env` cannot make tests call the API ([dotenv](../config/dotenv-file.md)). Fixtures: [test fixtures](test-fixtures.md). Run in CI by the [test job](../ci/test-matrix.md).

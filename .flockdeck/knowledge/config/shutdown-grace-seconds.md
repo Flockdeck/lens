@@ -9,6 +9,6 @@ code_paths: [src/lens/config.py]
 ---
 Default: 25.0.
 
-Read by `Settings` ([settings class](/packages/config-settings.md)) from the environment or the `.env` file.
+Read by `Settings` ([settings class](../packages/config-settings.md)) from the environment or the `.env` file.
 
-The config comment says to set the process's termination grace period above it. Cancelled items go back to queued without using an attempt ([processor](/packages/worker-processor.md)).
+The config comment says to set the process's termination grace period above it. Cancelled items go back to queued without using an attempt ([processor](../packages/worker-processor.md)).
