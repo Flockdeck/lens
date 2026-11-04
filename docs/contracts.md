@@ -185,8 +185,8 @@ per upload, never shared between rows. Helpers in `worker/queue.py` (all
 take the store explicitly):
 
 - `await store_raw(session, store, data: bytes) -> RawRecording`: hash the bytes, put the file
-  first, then add the row (flushed, not committed). A failure after the put leaves an orphan
-  file (harmless, and unreferenced); a row never points at a missing file.
+  first, then add the row (flushed, not committed). If the row cannot be added the file is
+  deleted again; a row never points at a missing file.
 - `await read_raw(session, store, raw_id) -> bytes`: raises `RecordingExpired` if the row has
   `expired_at` set or the file is gone (and then sets `expired_at`).
 - `await delete_raws_for_session(session, store, session_id) -> int`: delete every raw row and
