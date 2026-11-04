@@ -174,3 +174,19 @@ async def test_a_page_on_another_site_cannot_change_settings(
 
 async def test_settings_are_never_cached(client: httpx.AsyncClient) -> None:
     assert (await client.get("/settings")).headers["cache-control"] == "no-store"
+
+
+async def test_concurrent_updates_cannot_leave_anthropic_without_a_key(
+    client: httpx.AsyncClient,
+) -> None:
+    import asyncio
+
+    for _ in range(5):
+        await client.put("/settings", json={"enricher": "mock", "anthropic_api_key": SECRET})
+        a, b = await asyncio.gather(
+            client.put("/settings", json={"enricher": "anthropic"}),
+            client.put("/settings", json={"anthropic_api_key": None}),
+        )
+        assert {a.status_code, b.status_code} <= {200, 422}
+        body = (await client.get("/settings")).json()
+        assert body["enricher"] != "anthropic" or body["anthropic_api_key"]["set"], (a.text, b.text)
