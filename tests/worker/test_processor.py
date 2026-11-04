@@ -283,3 +283,22 @@ async def test_a_late_item_for_an_older_upload_keeps_the_newer_session(sm, store
         stored = (await db.execute(select(Session))).scalar_one()
         assert (stored.content_hash, stored.raw_id) == (newer_hash, newer_raw)
         assert old_item.session_id == stored.id
+
+
+async def test_a_retryable_failure_in_a_cancelled_batch_is_not_requeued(sm, store):
+    from lens.worker.queue import cancel_batch
+
+    batch_id, (running, waiting) = await make_batch(
+        sm, store, [("a.jsonl", recording("s1")), ("b.jsonl", recording("s2"))]
+    )
+    (claim,) = await claim_items(sm, 1)
+    async with sm() as db:
+        await cancel_batch(db, batch_id)  # b is cancelled; a is left to finish
+        await db.commit()
+
+    await processor(sm, store, FakeEnricher([retryable("rate limited")])).process(claim)
+
+    assert (await get_item(sm, running)).status == ItemStatus.cancelled
+    assert (await get_item(sm, waiting)).status == ItemStatus.cancelled
+    assert await claim_items(sm, 5) == []
+    assert (await get_batch(sm, batch_id)).status == BatchStatus.cancelled

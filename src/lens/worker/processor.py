@@ -11,7 +11,16 @@ from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecording, Session, utcnow
+from lens.db.models import (
+    Batch,
+    BatchItem,
+    BatchStatus,
+    Enrichment,
+    ItemStatus,
+    RawRecording,
+    Session,
+    utcnow,
+)
 from lens.enrich.base import Enricher, EnrichmentResult
 from lens.recording.models import Analysis
 from lens.recording.parser import analyze, parse
@@ -24,6 +33,13 @@ log = logging.getLogger(__name__)
 
 def _analyze_blob(data: bytes) -> Analysis:
     return analyze(parse(data))
+
+
+async def _batch_cancelled(db: AsyncSession, batch_id: int) -> bool:
+    status = (
+        await db.execute(select(Batch.status).where(Batch.id == batch_id))
+    ).scalar_one_or_none()
+    return status == BatchStatus.cancelled
 
 
 @dataclass(frozen=True)
@@ -173,7 +189,9 @@ class ItemProcessor:
                     BatchItem.locked_at == claim.locked_at,
                 )
                 .values(
-                    status=ItemStatus.queued,
+                    status=ItemStatus.cancelled
+                    if await _batch_cancelled(db, claim.batch_id)
+                    else ItemStatus.queued,
                     attempts=case((BatchItem.attempts > 1, BatchItem.attempts - 1), else_=0),
                     locked_at=None,
                     not_before=None,
@@ -278,6 +296,9 @@ class ItemProcessor:
         if session_id is not None:
             values["session_id"] = session_id
         async with self._sm() as db:
+            if status == ItemStatus.queued and await _batch_cancelled(db, claim.batch_id):
+                # The batch was cancelled while this item ran: do not run it again.
+                values.update(status=ItemStatus.cancelled, not_before=None)
             # Fenced on the claim token: if our claim went stale and was taken over, drop ours.
             result = await db.execute(
                 update(BatchItem)
