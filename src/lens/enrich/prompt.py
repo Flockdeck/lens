@@ -122,6 +122,30 @@ def _bound_json(obj: Any) -> Any:
     return obj
 
 
+def _bound_facts(facts: dict[str, Any]) -> None:
+    """Cap the parts of `facts` that come straight from the recording: names a file chooses
+    (project, model, tool names) and the lists and maps built from them. Without this a file
+    with thousands of distinct tool names makes a prompt the API refuses as too long."""
+    for key in ("project", "agent", "model"):
+        if isinstance(facts.get(key), str):
+            facts[key] = _clip(facts[key], MAX_ITEM_CHARS)
+    metrics = facts.get("metrics")
+    if not isinstance(metrics, dict):
+        return
+    if isinstance(metrics.get("models"), list):
+        metrics["models"] = _cap_strings([str(m) for m in metrics["models"]])
+    for key in ("tool_mix", "status_seconds"):
+        table = metrics.get(key)
+        if isinstance(table, dict) and len(table) > MAX_LIST_ITEMS:
+            # Keep the biggest entries; say how many were left out.
+            top = sorted(table.items(), key=lambda kv: kv[1], reverse=True)[:MAX_LIST_ITEMS]
+            table = dict(top)
+            table["(other keys omitted)"] = len(metrics[key]) - MAX_LIST_ITEMS
+            metrics[key] = table
+        if isinstance(metrics.get(key), dict):
+            metrics[key] = {_clip(str(k), MAX_ITEM_CHARS): v for k, v in metrics[key].items()}
+
+
 def _risky_in_prompt(analysis: Analysis) -> list[Any]:
     return list(analysis.risky_actions[:MAX_LIST_ITEMS])
 
@@ -159,6 +183,7 @@ def build_user_message(analysis: Analysis) -> str:
         include={"project", "agent", "model", "completeness", "started_at", "ended_at", "metrics"},
     )
     facts["risky_actions"] = risky_json
+    _bound_facts(facts)
     facts["files_touched"] = {
         "read": _cap_strings(ft.read),
         "edited": _cap_strings(ft.edited),
