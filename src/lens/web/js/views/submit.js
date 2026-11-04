@@ -8,6 +8,8 @@ export function render(root) {
   let files = [];
   let serverRejected = [];
   let error = "";
+  let uploading = false; // a redraw during an upload must not make a fresh, enabled Submit button
+  let leftView = false;
 
   const input = h("input", {
     type: "file", id: "file-input", multiple: true, accept: ".jsonl", class: "visually-hidden",
@@ -69,7 +71,7 @@ export function render(root) {
 
     clear(actions);
     if (checked.length) {
-      const send = h("button", { type: "button", class: "btn btn-primary", disabled: good === 0 }, "Submit batch");
+      const send = h("button", { type: "button", class: "btn btn-primary", disabled: good === 0 || uploading }, "Submit batch");
       send.addEventListener("click", () => submit(send, checked));
       actions.append(send,
         h("button", { type: "button", class: "btn", onclick: () => { files = []; error = ""; serverRejected = []; draw(); } }, "Clear"),
@@ -88,14 +90,22 @@ export function render(root) {
   async function submit(button, checked) {
     const send = checked.filter((c) => !c.problem).map((c) => c.file);
     const skipped = checked.filter((c) => c.problem).map((c) => ({ filename: c.file.name, reason: c.problem }));
+    uploading = true;
     await withBusy(button, async () => {
       try {
         const res = await api.uploadBatch(send);
         try {
           sessionStorage.setItem(REJECTED_KEY + res.id, JSON.stringify([...(res.rejected || []), ...skipped]));
         } catch { /* optional */ }
+        uploading = false;
+        if (leftView) { // do not pull the user away from what they are doing now
+          toast(`Batch ${res.id} uploaded`);
+          return;
+        }
         location.hash = `#/batches/${encodeURIComponent(res.id)}`;
       } catch (e) {
+        uploading = false;
+        if (leftView) { toast(e.message || "Upload failed", "error"); return; }
         error = e.message || "Upload failed";
         serverRejected = e instanceof ApiError
           ? (e.body && e.body.detail && e.body.detail.rejected) || (e.body && e.body.rejected) || []
@@ -111,5 +121,8 @@ export function render(root) {
       h("p", { class: "muted" }, "Choose Flockdeck pane recordings. They go up as one batch and are processed in the background.")),
     input, dropLabel, list, actions, status);
   draw();
-  return () => { for (const [name, fn] of Object.entries(dnd)) document.removeEventListener(name, fn); };
+  return () => {
+    leftView = true;
+    for (const [name, fn] of Object.entries(dnd)) document.removeEventListener(name, fn);
+  };
 }
