@@ -81,6 +81,9 @@ class Store:
     def body(self, key: str) -> bytes:
         return bytes(self.s3.get_object(Bucket=BUCKET, Key=key)["Body"].read())
 
+    def delete(self, key: str) -> None:
+        self.s3.delete_object(Bucket=BUCKET, Key=key)
+
     def head(self, key: str) -> dict[str, object]:
         return dict(self.s3.head_object(Bucket=BUCKET, Key=key))
 
@@ -277,18 +280,42 @@ def test_publishing_the_same_release_again_changes_nothing_that_was_cached(
     assert store.body("lens/v0.3.0/manifest.json") == first_manifest
 
 
-def test_a_version_already_published_with_other_files_is_refused(
+def test_a_rebuilt_release_finishes_with_the_files_that_were_published(
+    store: Store, tmp_path: Path, aws_log: Path
+) -> None:
+    """A workflow run again from the tag builds different archives. The published ones win."""
+    first = made(tmp_path, "v0.3.0", "first")
+    publish(store, first, "v0.3.0", aws_log)
+    published = {k: store.body(k) for k in store.keys() if k.startswith("lens/v0.3.0/")}
+    # The run that published stopped before moving latest.json.
+    store.delete("lens/latest.json")
+    rebuilt = made(tmp_path, "v0.3.0", "second")  # random bytes: different archives, same tag
+    assert (rebuilt / "checksums.txt").read_bytes() != published["lens/v0.3.0/checksums.txt"]
+    aws_log.write_text("", encoding="utf-8")
+    result = publish(store, rebuilt, "v0.3.0", aws_log)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "using the published ones" in result.stdout
+    # The same bytes went up again, so nothing under the version changed, and dist now holds
+    # what is published.
+    assert {k: store.body(k) for k in store.keys() if k.startswith("lens/v0.3.0/")} == published
+    for key, body in published.items():
+        assert (rebuilt / key.rsplit("/", 1)[1]).read_bytes() == body
+    assert (rebuilt / ".adopted").exists()
+    # And the release was finished: latest.json names it.
+    assert store.body("lens/latest.json") == b'{"version":"v0.3.0"}\n'
+
+
+def test_a_published_version_missing_its_manifest_is_refused_not_mixed(
     store: Store, tmp_path: Path, aws_log: Path
 ) -> None:
     publish(store, made(tmp_path, "v0.3.0", "first"), "v0.3.0", aws_log)
-    published = store.body("lens/v0.3.0/checksums.txt")
-    other = made(tmp_path, "v0.3.0", "second")  # random bytes: different archives, same tag
+    store.delete("lens/v0.3.0/manifest.json")
+    other = made(tmp_path, "v0.3.0", "second")
     aws_log.write_text("", encoding="utf-8")
     result = publish(store, other, "v0.3.0", aws_log)
     assert result.returncode != 0
-    assert "already published with other files" in result.stderr
-    assert uploads(aws_log) == []  # not one file was written over
-    assert store.body("lens/v0.3.0/checksums.txt") == published
+    assert "interrupted part way" in result.stderr
+    assert uploads(aws_log) == []
 
 
 def test_an_archive_that_does_not_match_its_checksum_is_refused_before_anything_goes_up(

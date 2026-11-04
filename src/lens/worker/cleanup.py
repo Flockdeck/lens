@@ -34,8 +34,9 @@ async def expire_raws(
     sm: async_sessionmaker[AsyncSession], store: RecordingStore, retention_days: int
 ) -> int:
     """For raw rows older than `retention_days` (0 = keep forever): delete the stored file
-    (best effort; a missing file is fine), then set expired_at. CHUNK rows at a time. A raw
-    that a queued or running item still needs is left alone until that item finishes."""
+    (a missing file is fine), then set expired_at. CHUNK rows at a time. A raw whose file could
+    not be deleted keeps expired_at unset so a later run tries again. A raw that a queued or
+    running item still needs is left alone until that item finishes. Returns the number expired."""
     if retention_days <= 0:
         return 0
     cutoff = utcnow() - timedelta(days=retention_days)
@@ -63,18 +64,22 @@ async def expire_raws(
             if not rows:
                 return total
             last_id = rows[-1].id
+            deleted: list[int] = []
             for row in rows:
                 try:
                     await store.delete(row.object_key)
                 except Exception:
                     log.warning("file delete failed", extra={"raw_id": row.id})
-            await db.execute(
-                update(RawRecording)
-                .where(RawRecording.id.in_([r.id for r in rows]))
-                .values(expired_at=utcnow())
-            )
-            await db.commit()
-            total += len(rows)
+                else:
+                    deleted.append(row.id)
+            if deleted:
+                await db.execute(
+                    update(RawRecording)
+                    .where(RawRecording.id.in_(deleted))
+                    .values(expired_at=utcnow())
+                )
+                await db.commit()
+            total += len(deleted)
 
 
 async def delete_old_batches(

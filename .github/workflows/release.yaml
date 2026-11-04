@@ -8,7 +8,8 @@ name: release
 # which only a v* tag may deploy to.
 #
 # A run can be repeated, from the tag, with workflow_dispatch: to finish a release whose run
-# stopped part way. Files already on the CDN under a version are never replaced.
+# stopped part way. Files already on the CDN under a version are never replaced: a run that finds
+# them there uses them instead of the archives it built, since a build is not reproducible.
 on:
   push:
     tags: ["v*"]
@@ -198,3 +199,17 @@ jobs:
             exit 1
           fi
           sh "${RUNNER_TEMP}/publish-downloads.sh" "${TAG}" dist
+
+      # A run repeated from the tag builds new archives, and the step above then swaps in the ones
+      # already on the CDN (it leaves dist/.adopted). GitHub got the rebuilt ones earlier; this
+      # puts the published ones there, so both places carry the same files.
+      - name: Match GitHub to the published files
+        if: hashFiles('dist/.adopted') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=()
+          for f in dist/*; do
+            [ "${f##*/}" = latest.json ] || files+=("$f")
+          done
+          gh release upload "${TAG}" "${files[@]}" --clobber
