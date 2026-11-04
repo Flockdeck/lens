@@ -262,3 +262,24 @@ def test_an_aware_time_is_converted_to_utc_not_just_stripped_of_its_offset():
     assert _naive(datetime(2026, 10, 1, 10, 0, tzinfo=UTC)) == datetime(2026, 10, 1, 10, 0)
     assert _naive(datetime(2026, 10, 1, 10, 0)) == datetime(2026, 10, 1, 10, 0)
     assert _naive(None) is None
+
+
+async def test_a_late_item_for_an_older_upload_keeps_the_newer_session(sm, store):
+    enricher = FakeEnricher()
+    _, (old,) = await make_batch(sm, store, [("v1.jsonl", recording("s1", extra="v1"))])
+    _, (new,) = await make_batch(sm, store, [("v2.jsonl", recording("s1", extra="v2"))])
+    old_claim, new_claim = await claim_items(sm, 2)
+    p = processor(sm, store, enricher)
+    await p.process(new_claim)
+    async with sm() as db:
+        stored = (await db.execute(select(Session))).scalar_one()
+        newer_hash, newer_raw = stored.content_hash, stored.raw_id
+    await p.process(old_claim)  # the older upload's item ran late (a retry, for example)
+
+    old_item = await get_item(sm, old)
+    assert old_item.status == ItemStatus.done
+    assert enricher.calls == 1  # the older recording was not enriched
+    async with sm() as db:
+        stored = (await db.execute(select(Session))).scalar_one()
+        assert (stored.content_hash, stored.raw_id) == (newer_hash, newer_raw)
+        assert old_item.session_id == stored.id

@@ -202,6 +202,19 @@ class ItemProcessor:
             # CPU-bound on up to 16 MiB: keep it off the event loop.
             analysis = await asyncio.to_thread(_analyze_blob, data)
             del data
+            newer = (
+                await db.execute(
+                    select(Session.id).where(
+                        Session.recording_session == analysis.recording_session,
+                        Session.raw_id > raw.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if newer is not None:
+                # A later upload of this recording_session is already stored (this item was
+                # retried after it): keep the newer session and its enrichment.
+                await db.commit()
+                return newer
             row, unchanged = await upsert_session(db, analysis, raw.content_hash, raw.id)
             session_id = row.id
             enriched = (
