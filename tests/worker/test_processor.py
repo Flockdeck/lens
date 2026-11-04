@@ -250,3 +250,15 @@ async def test_lost_claim_does_not_overwrite_the_new_holder(sm, store):
         await db.commit()
     await processor(sm, store, FakeEnricher()).process(claim)
     assert (await get_item(sm, a)).status == ItemStatus.running
+
+
+def test_an_aware_time_is_converted_to_utc_not_just_stripped_of_its_offset():
+    from datetime import UTC, datetime, timedelta, timezone
+
+    from lens.worker.processor import _naive
+
+    plus_two = datetime(2026, 10, 1, 10, 15, 30, tzinfo=timezone(timedelta(hours=2)))
+    assert _naive(plus_two) == datetime(2026, 10, 1, 8, 15, 30)
+    assert _naive(datetime(2026, 10, 1, 10, 0, tzinfo=UTC)) == datetime(2026, 10, 1, 10, 0)
+    assert _naive(datetime(2026, 10, 1, 10, 0)) == datetime(2026, 10, 1, 10, 0)
+    assert _naive(None) is None

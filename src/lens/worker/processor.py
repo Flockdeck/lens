@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
@@ -35,7 +35,12 @@ class Claim:
 
 
 def _naive(value: datetime | None) -> datetime | None:
-    return value.replace(tzinfo=None) if value else None  # stored as naive UTC
+    """Stored as naive UTC: an aware time is converted first, not just stripped of its offset."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(UTC)
+    return value.replace(tzinfo=None)
 
 
 def _apply_analysis(
