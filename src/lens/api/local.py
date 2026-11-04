@@ -38,6 +38,16 @@ def normalise_hosts(hosts: Iterable[str]) -> frozenset[str]:
     return frozenset(names)
 
 
+def _hostname(url: str) -> str | None:
+    """The lower-cased host name of `url`, or None if there is none or it is malformed (an
+    unclosed bracket such as `[::1` makes `urlsplit` raise)."""
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return None
+    return host.lower() if host else None
+
+
 class LocalOnly:
     """Pure ASGI middleware, so it also sees the requests no route matches."""
 
@@ -46,8 +56,7 @@ class LocalOnly:
         self.allowed = normalise_hosts(allowed_hosts)
 
     def _host_of(self, value: str) -> str | None:
-        host = urlsplit("//" + value).hostname if value else None
-        return host.lower() if host else None
+        return _hostname("//" + value) if value else None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -73,8 +82,7 @@ class LocalOnly:
 
     @staticmethod
     def _host_of_origin(origin: str) -> str | None:
-        host = urlsplit(origin).hostname
-        return host.lower() if host else None
+        return _hostname(origin)
 
     async def _refuse(self, send: Send, status: int, detail: str, method: str) -> None:
         # Never log the offending host or origin: they are chosen by whoever sent the request.
