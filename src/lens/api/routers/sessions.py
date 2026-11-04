@@ -13,8 +13,10 @@ from sqlalchemy.orm import contains_eager, selectinload
 
 from lens.api.dates import RANGE_DOC, range_conditions
 from lens.api.deps import (
+    MAX_ROW_ID,
     EnricherProvider,
     QueueApi,
+    RowId,
     StoreProvider,
     get_db,
     get_enricher_provider,
@@ -170,7 +172,7 @@ async def list_sessions(
     sort: Literal["started_at", "ended_at", "created_at", "project", "frustration"] = "started_at",
     order: Literal["asc", "desc"] = "desc",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_ROW_ID)] = 0,
 ) -> SessionList:
     conditions: list[ColumnElement[bool]] = []
     for column, value in (
@@ -213,14 +215,14 @@ async def list_sessions(
 
 @router.get("/{session_id}", response_model=SessionDetail)
 async def get_session(
-    session_id: int, db: Annotated[AsyncSession, Depends(get_db)]
+    session_id: RowId, db: Annotated[AsyncSession, Depends(get_db)]
 ) -> SessionDetail:
     return await _detail(db, session_id)
 
 
 @router.get("/{session_id}/events", response_model=EventsPage)
 async def get_events(
-    session_id: int,
+    session_id: RowId,
     db: Annotated[AsyncSession, Depends(get_db)],
     store_provider: Annotated[StoreProvider, Depends(get_store_provider)],
     after_seq: Annotated[int, Query(ge=0)] = 0,
@@ -247,7 +249,7 @@ async def get_events(
 
 @router.post("/{session_id}/enrich", response_model=SessionDetail)
 async def reenrich(
-    session_id: int,
+    session_id: RowId,
     db: Annotated[AsyncSession, Depends(get_db)],
     enricher_provider: Annotated[EnricherProvider, Depends(get_enricher_provider)],
     queue: Annotated[QueueApi, Depends(get_queue)],
@@ -311,7 +313,7 @@ async def reenrich(
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(
-    session_id: int,
+    session_id: RowId,
     db: Annotated[AsyncSession, Depends(get_db)],
     queue: Annotated[QueueApi, Depends(get_queue)],
     store_provider: Annotated[StoreProvider, Depends(get_store_provider)],

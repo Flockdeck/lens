@@ -2,9 +2,9 @@
 
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Annotated, Protocol
 
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Path, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lens.config import Settings
@@ -13,6 +13,11 @@ from lens.db.models import Batch, RawRecording
 if TYPE_CHECKING:
     from lens.enrich.base import Enricher, EnrichmentResult
     from lens.storage.base import RecordingStore
+
+
+# SQLite integers are 64-bit: a larger id in a path is a 422, not a 500 from the driver.
+MAX_ROW_ID = 2**63 - 1
+RowId = Annotated[int, Path(le=MAX_ROW_ID)]
 
 
 def get_app_settings(request: Request) -> Settings:

@@ -14,6 +14,7 @@ from starlette.formparsers import MultiPartException
 
 from lens.api.deps import (
     QueueApi,
+    RowId,
     StoreProvider,
     get_app_settings,
     get_db,
@@ -129,13 +130,13 @@ async def submit_batch(
 
 
 @router.get("/{batch_id}", response_model=BatchOut)
-async def get_batch(batch_id: int, db: Annotated[AsyncSession, Depends(get_db)]) -> BatchOut:
+async def get_batch(batch_id: RowId, db: Annotated[AsyncSession, Depends(get_db)]) -> BatchOut:
     return await load_batch(db, batch_id)
 
 
 @router.post("/{batch_id}/retry", response_model=BatchOut)
 async def retry_batch(
-    batch_id: int,
+    batch_id: RowId,
     db: Annotated[AsyncSession, Depends(get_db)],
     queue: Annotated[QueueApi, Depends(get_queue)],
 ) -> BatchOut:
@@ -148,7 +149,7 @@ async def retry_batch(
 
 @router.post("/{batch_id}/cancel", response_model=BatchOut)
 async def cancel_batch(
-    batch_id: int,
+    batch_id: RowId,
     db: Annotated[AsyncSession, Depends(get_db)],
     queue: Annotated[QueueApi, Depends(get_queue)],
 ) -> BatchOut:
