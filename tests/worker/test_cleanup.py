@@ -69,18 +69,37 @@ async def test_missing_file_is_fine_and_row_is_still_expired(sm, store):
     assert (await run_cleanup(sm, store, 30)).raws_expired == 1
 
 
-async def test_file_delete_failure_does_not_stop_cleanup(sm, store):
-    _, (a,) = await make_batch(sm, store, [("a.jsonl", recording())])
+async def test_file_delete_failure_leaves_the_row_for_a_later_run(sm, store):
+    _, (a, b) = await make_batch(
+        sm, store, [("a.jsonl", recording("a")), ("b.jsonl", recording("b"))]
+    )
     await _finish_items(sm)
-
-    async def broken(key):
-        raise OSError("disk error")
-
-    store.delete = broken
     async with sm() as db:
-        raw = (await db.get(BatchItem, a)).raw_id
-    await _age_raw(sm, raw, 40)
+        raw_a = (await db.get(BatchItem, a)).raw_id
+        raw_b = (await db.get(BatchItem, b)).raw_id
+        key_a = (await db.get(RawRecording, raw_a)).object_key
+    real_delete = store.delete
+
+    async def flaky(key):
+        if key == key_a:
+            raise PermissionError("file is locked")
+        await real_delete(key)
+
+    store.delete = flaky
+    await _age_raw(sm, raw_a, 40)
+    await _age_raw(sm, raw_b, 40)
+    # a's delete fails: b is still cleaned up, a is neither counted nor marked expired.
     assert (await run_cleanup(sm, store, 30)).raws_expired == 1
+    async with sm() as db:
+        assert (await db.get(RawRecording, raw_a)).expired_at is None
+        assert (await db.get(RawRecording, raw_b)).expired_at is not None
+    assert key_a in store.objects
+    # Once the file can be deleted again, the next run finishes the job.
+    store.delete = real_delete
+    assert (await run_cleanup(sm, store, 30)).raws_expired == 1
+    assert key_a not in store.objects
+    async with sm() as db:
+        assert (await db.get(RawRecording, raw_a)).expired_at is not None
 
 
 async def test_retention_zero_keeps_files_forever(sm, store):

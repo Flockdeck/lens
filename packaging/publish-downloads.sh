@@ -129,16 +129,46 @@ fetch() {
 }
 
 # A version's files are cached for a year and never change, so one already published with other
-# files is refused: replacing them would leave the CDN's edges serving copies that disagree with
-# the bucket for as long, and nothing purges them. Built again from the same tag the archives are
-# the same, and uploading them again changes nothing. The manifest is kept as it was first
-# published, though. Signed again it carries another date, and an edge holding the first
-# manifest.json beside the second's signature would fail it.
+# files is never written over: replacing them would leave the CDN's edges serving copies that
+# disagree with the bucket for as long, and nothing purges them. A build from the same tag does
+# not give the same archives (tar and 7z embed mtimes, PyInstaller output varies), so a workflow
+# run again to finish a release always has different ones. What is published is the release, then:
+# its files are fetched into dist, over the rebuilt ones, after checking each against the
+# published checksums.txt, and the rest of the run goes on with them. dist/.adopted is written so
+# the workflow can put the same files on GitHub. The manifest is kept as it was first published
+# too: signed again it carries another date, and an edge holding the first manifest.json beside
+# the second's signature would fail it.
 keep_manifest=
 if fetch "$product/$version/checksums.txt" published.txt; then
-	cmp -s "$tmp/published.txt" "$dist/checksums.txt" ||
-		die "$version is already published with other files. Its files are cached for a year and are never purged, so replacing them would leave copies that disagree; tag a new version"
-	say "$version is already published with these same files"
+	if cmp -s "$tmp/published.txt" "$dist/checksums.txt"; then
+		say "$version is already published with these same files"
+	else
+		say "$version is already published with other files than the ones in $dist; using the published ones"
+		fetch "$product/$version/checksums.txt.sig" checksums.txt.sig &&
+			fetch "$product/$version/manifest.json" manifest.json &&
+			fetch "$product/$version/manifest.json.sig" manifest.json.sig ||
+			die "$version is published with other files than the ones in $dist, and not all of its checksums.txt, manifest.json and their signatures are there to use instead, so it was interrupted part way; tag a new version"
+		# The archives the published checksums.txt lists must be the ones this run has, by name.
+		for f in "$@"; do
+			name=${f##*/}
+			want=$(awk -v f="$name" '$2 == f { print $1 }' "$tmp/published.txt")
+			[ -n "$want" ] || die "the published checksums.txt of $version does not list $name; tag a new version"
+			fetch "$product/$version/$name" "adopted-$name" ||
+				die "$version is published with other files than the ones in $dist, and $name is not there to use instead; tag a new version"
+			[ "$(sha256 "$tmp/adopted-$name")" = "$want" ] ||
+				die "the published $name of $version does not match its published checksums.txt; tag a new version"
+		done
+		[ "$(awk 'NF' "$tmp/published.txt" | wc -l | tr -d ' ')" = "$#" ] ||
+			die "the published checksums.txt of $version lists other files than the archives in $dist; tag a new version"
+		for f in "$@"; do
+			cp "$tmp/adopted-${f##*/}" "$f"
+		done
+		cp "$tmp/published.txt" "$dist/checksums.txt"
+		cp "$tmp/checksums.txt.sig" "$dist/checksums.txt.sig"
+		cp "$tmp/manifest.json" "$dist/manifest.json"
+		cp "$tmp/manifest.json.sig" "$dist/manifest.json.sig"
+		: >"$dist/.adopted"
+	fi
 	if fetch "$product/$version/manifest.json" manifest.json && fetch "$product/$version/manifest.json.sig" manifest.json.sig; then
 		keep_manifest=1
 	fi

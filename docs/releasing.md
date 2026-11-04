@@ -30,7 +30,11 @@ The release workflow then:
 
 GitHub comes before the CDN on purpose. A run that stops after step 5 has still made a release,
 one that is only missing from the CDN. Run the workflow again from the tag (`workflow_dispatch`)
-to finish it.
+to finish it. The rebuilt archives differ from any already on the CDN, so a version's files that
+are published win: the script fetches them over the rebuilt ones, checks them against the published
+`checksums.txt`, and carries on, and the workflow then puts the same files on GitHub. If the CDN
+has some of a version's files but not its `checksums.txt`, the run uploads its own as usual; if it
+has `checksums.txt` but not the manifest or an archive, the run stops and the version is spent.
 
 ## What is on the CDN
 
