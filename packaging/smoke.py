@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -102,7 +103,8 @@ def wait_ready(proc: subprocess.Popen[bytes], base: str) -> None:
             if call(base + "/readyz")[0] == 200:
                 return
         except OSError:
-            time.sleep(0.2)
+            pass  # not listening yet
+        time.sleep(0.2)  # also while it answers 503 (migrating), so it is not hammered
     check(False, "the binary became ready within 60 s")
 
 
@@ -312,12 +314,22 @@ def run(binary: Path) -> None:
 
 
 def main() -> int:
-    binary = Path(sys.argv[1]).resolve()
+    args = sys.argv[1:]
+    keep = "--keep" in args
+    paths = [a for a in args if a != "--keep"]
+    if len(paths) != 1:
+        print(__doc__)
+        return 2
+    binary = Path(paths[0]).resolve()
     try:
         run(binary)
     except BaseException:
         dump_logs()
+        print("data directories kept for inspection: " + ", ".join(map(str, DATA_DIRS)))
         raise
+    if not keep:
+        for data in DATA_DIRS:
+            shutil.rmtree(data, ignore_errors=True)
     print("smoke test passed")
     return 0
 
