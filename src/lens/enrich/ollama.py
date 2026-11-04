@@ -36,6 +36,10 @@ def require_local_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or parsed.hostname is None:
         raise ValueError("OLLAMA_URL must be an http(s) URL")
+    try:
+        parsed.port  # noqa: B018  (raises ValueError for http://localhost:abc or :99999)
+    except ValueError:
+        raise ValueError("OLLAMA_URL has an invalid port") from None
     if parsed.hostname.lower() not in LOCAL_HOSTS:
         raise ValueError(
             "OLLAMA_URL must point at this machine (127.0.0.1, ::1, localhost or "

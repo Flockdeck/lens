@@ -103,7 +103,15 @@ async def test_an_update_leaves_unsent_fields_alone(client: httpx.AsyncClient) -
 
 
 @pytest.mark.parametrize(
-    "url", ["http://example.com:11434", "http://10.0.0.5:11434", "ftp://localhost", "not a url"]
+    "url",
+    [
+        "http://example.com:11434",
+        "http://10.0.0.5:11434",
+        "ftp://localhost",
+        "not a url",
+        "http://localhost:abc",
+        "http://localhost:99999",
+    ],
 )
 async def test_an_ollama_url_must_be_this_machine(client: httpx.AsyncClient, url: str) -> None:
     resp = await client.put("/settings", json={"ollama_url": url})
