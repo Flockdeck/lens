@@ -102,6 +102,7 @@ export function render(root, { parts, query }) {
         toast("Re-enriched");
         await load();
       } catch (e) {
+        if (ctrl.signal.aborted) return; // the user has left this page: do not draw into it or touch the URL
         if (e instanceof ApiError && e.status === 410) { rawGone = true; draw(current); return; }
         toast(e.message, "error");
       }
@@ -272,6 +273,7 @@ export function render(root, { parts, query }) {
           const next = data && !Array.isArray(data) ? data.next_after_seq : undefined;
           if (typeof next === "number") afterSeq = next;
           count += evs.length;
+          more.textContent = "Load more events";
           status.textContent = `${count} event${count === 1 ? "" : "s"} loaded`;
           more.hidden = next === null || (next === undefined && evs.length < EVENT_PAGE);
           if (!count) status.textContent = "No events in this recording.";
@@ -279,7 +281,9 @@ export function render(root, { parts, query }) {
           if (e.name === "AbortError") return;
           if (e instanceof ApiError && e.status === 410) { rawGone = true; draw(current); return; }
           status.textContent = e.message;
-          more.hidden = true;
+          // Keep the button, so a failed page can be tried again.
+          more.textContent = "Try again";
+          more.hidden = false;
         }
       });
     }
