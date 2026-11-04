@@ -210,3 +210,14 @@ def test_a_release_candidate_tag_is_a_release_tag(tmp_path: Path) -> None:
     key = Ed25519PrivateKey.generate()
     release.run_sign(tmp_path, "v0.1.0-rc.1", key_text=fake_release.private_pem(key), any_key=True)
     assert release.run_verify(tmp_path, "v0.1.0-rc.1", [key.public_key()]) == []
+
+
+@pytest.mark.parametrize("name", ["manifest.json", "latest.json"])
+@pytest.mark.parametrize("content", [b"", b'{"version": "v0.3', b"[1, 2]"])
+def test_a_truncated_or_malformed_json_file_is_a_problem_not_a_traceback(
+    tmp_path: Path, name: str, content: bytes
+) -> None:
+    key, _ = fake_release.make_release(tmp_path)
+    (tmp_path / name).write_bytes(content)
+    problems = release.run_verify(tmp_path, "v0.3.0", [key.public_key()])
+    assert any(name in p for p in problems), problems

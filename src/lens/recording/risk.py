@@ -32,6 +32,7 @@ _PIPE_TO_SHELL = re.compile(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:ba|z|d
 _DROP = re.compile(r"\bdrop\s+(?:table|database|schema|index|view)\b", re.I)
 _TRUNCATE = re.compile(r"\btruncate\s+table\b", re.I)
 _DELETE_ALL = re.compile(r"\bdelete\s+from\s+[\w.`\"\[\]]+\s*(?:;|$|[\"'])", re.I)
+_ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 _CHMOD_777 = re.compile(r"\bchmod\b[^;&|]*\b0?777\b")
 
 
@@ -78,7 +79,12 @@ def _segments(command: str) -> Iterator[tuple[list[str], bool]]:
         except ValueError:
             tokens = seg.split()
         sudo = False
-        while tokens and tokens[0] in ("sudo", "time", "env", "command"):
+        while tokens and (
+            tokens[0] in ("sudo", "time", "env", "command") or _ASSIGNMENT.match(tokens[0])
+        ):
+            if _ASSIGNMENT.match(tokens[0]):  # `CI=1 rm -rf /`: the variable is not the command
+                tokens = tokens[1:]
+                continue
             sudo = sudo or tokens[0] == "sudo"
             tokens = tokens[1:]
             while tokens and tokens[0].startswith("-"):

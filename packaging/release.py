@@ -31,6 +31,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -249,6 +250,22 @@ def run_sign(
         (out / name).write_bytes(data)
 
 
+def parse_json(path: Path, raw: bytes, problems: list[str]) -> dict[str, Any] | None:
+    """The JSON object in `raw`, or None (adding to `problems` unless the file is absent). A
+    truncated download must be reported as a FAIL line, not stop the check with a traceback."""
+    if not path.is_file():
+        return None  # already reported as missing
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        problems.append(f"{path.name} is not valid JSON")
+        return None
+    if not isinstance(parsed, dict):
+        problems.append(f"{path.name} is not a JSON object")
+        return None
+    return parsed
+
+
 def run_verify(out: Path, tag: str, keys: list[Ed25519PublicKey] | None = None) -> list[str]:
     """Everything the app would check of a published release. Returns what it found wrong."""
     keys = keys or trusted_keys()
@@ -267,8 +284,8 @@ def run_verify(out: Path, tag: str, keys: list[Ed25519PublicKey] | None = None) 
         problems.append("checksums.txt.sig does not verify")
     if manifest and not check_signature(keys, manifest, manifest_sig):
         problems.append("manifest.json.sig does not verify")
-    if manifest:
-        parsed = json.loads(manifest)
+    parsed = parse_json(out / "manifest.json", manifest, problems)
+    if parsed is not None:
         if parsed.get("version") != tag:
             problems.append(f"manifest.json is for {parsed.get('version')}, not {tag}")
         for entry in parsed.get("files", []):
@@ -281,8 +298,8 @@ def run_verify(out: Path, tag: str, keys: list[Ed25519PublicKey] | None = None) 
         for os_name, arch in PLATFORMS:
             if archive_name(tag, os_name, arch) not in have:
                 problems.append(f"the manifest has no {archive_name(tag, os_name, arch)}")
-    pointer = read("latest.json")
-    if pointer and json.loads(pointer).get("version") != tag:
+    latest = parse_json(out / "latest.json", read("latest.json"), problems)
+    if latest is not None and latest.get("version") != tag:
         problems.append("latest.json does not name this release")
     return problems
 

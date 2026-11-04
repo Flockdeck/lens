@@ -103,7 +103,15 @@ async def test_an_update_leaves_unsent_fields_alone(client: httpx.AsyncClient) -
 
 
 @pytest.mark.parametrize(
-    "url", ["http://example.com:11434", "http://10.0.0.5:11434", "ftp://localhost", "not a url"]
+    "url",
+    [
+        "http://example.com:11434",
+        "http://10.0.0.5:11434",
+        "ftp://localhost",
+        "not a url",
+        "http://localhost:abc",
+        "http://localhost:99999",
+    ],
 )
 async def test_an_ollama_url_must_be_this_machine(client: httpx.AsyncClient, url: str) -> None:
     resp = await client.put("/settings", json={"ollama_url": url})
@@ -166,3 +174,19 @@ async def test_a_page_on_another_site_cannot_change_settings(
 
 async def test_settings_are_never_cached(client: httpx.AsyncClient) -> None:
     assert (await client.get("/settings")).headers["cache-control"] == "no-store"
+
+
+async def test_concurrent_updates_cannot_leave_anthropic_without_a_key(
+    client: httpx.AsyncClient,
+) -> None:
+    import asyncio
+
+    for _ in range(5):
+        await client.put("/settings", json={"enricher": "mock", "anthropic_api_key": SECRET})
+        a, b = await asyncio.gather(
+            client.put("/settings", json={"enricher": "anthropic"}),
+            client.put("/settings", json={"anthropic_api_key": None}),
+        )
+        assert {a.status_code, b.status_code} <= {200, 422}
+        body = (await client.get("/settings")).json()
+        assert body["enricher"] != "anthropic" or body["anthropic_api_key"]["set"], (a.text, b.text)

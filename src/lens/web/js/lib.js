@@ -56,12 +56,14 @@ export function buildQuery(params) {
 export function checkFiles(files, limits = {}) {
   const maxBytes = limits.maxBytes ?? MAX_FILE_BYTES;
   const maxFiles = limits.maxFiles ?? MAX_FILES;
-  return files.map((file, i) => {
+  let valid = 0; // only files that would be sent count against the limit
+  return files.map((file) => {
     let problem = null;
     if (!/\.jsonl$/i.test(file.name)) problem = "Not a .jsonl file";
     else if (file.size === 0) problem = "File is empty";
     else if (file.size > maxBytes) problem = `Over the ${fmtBytes(maxBytes)} limit`;
-    else if (i >= maxFiles) problem = `Only ${maxFiles} files per batch`;
+    else if (valid >= maxFiles) problem = `Only ${maxFiles} files per batch`;
+    else valid += 1;
     return { file, key: fileKey(file), problem };
   });
 }

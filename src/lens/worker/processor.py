@@ -5,13 +5,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lens.db.models import BatchItem, Enrichment, ItemStatus, RawRecording, Session, utcnow
+from lens.db.models import (
+    Batch,
+    BatchItem,
+    BatchStatus,
+    Enrichment,
+    ItemStatus,
+    RawRecording,
+    Session,
+    utcnow,
+)
 from lens.enrich.base import Enricher, EnrichmentResult
 from lens.recording.models import Analysis
 from lens.recording.parser import analyze, parse
@@ -26,6 +35,13 @@ def _analyze_blob(data: bytes) -> Analysis:
     return analyze(parse(data))
 
 
+async def _batch_cancelled(db: AsyncSession, batch_id: int) -> bool:
+    status = (
+        await db.execute(select(Batch.status).where(Batch.id == batch_id))
+    ).scalar_one_or_none()
+    return status == BatchStatus.cancelled
+
+
 @dataclass(frozen=True)
 class Claim:
     item_id: int
@@ -35,7 +51,12 @@ class Claim:
 
 
 def _naive(value: datetime | None) -> datetime | None:
-    return value.replace(tzinfo=None) if value else None  # stored as naive UTC
+    """Stored as naive UTC: an aware time is converted first, not just stripped of its offset."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        value = value.astimezone(UTC)
+    return value.replace(tzinfo=None)
 
 
 def _apply_analysis(
@@ -168,7 +189,9 @@ class ItemProcessor:
                     BatchItem.locked_at == claim.locked_at,
                 )
                 .values(
-                    status=ItemStatus.queued,
+                    status=ItemStatus.cancelled
+                    if await _batch_cancelled(db, claim.batch_id)
+                    else ItemStatus.queued,
                     attempts=case((BatchItem.attempts > 1, BatchItem.attempts - 1), else_=0),
                     locked_at=None,
                     not_before=None,
@@ -197,6 +220,19 @@ class ItemProcessor:
             # CPU-bound on up to 16 MiB: keep it off the event loop.
             analysis = await asyncio.to_thread(_analyze_blob, data)
             del data
+            newer = (
+                await db.execute(
+                    select(Session.id).where(
+                        Session.recording_session == analysis.recording_session,
+                        Session.raw_id > raw.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if newer is not None:
+                # A later upload of this recording_session is already stored (this item was
+                # retried after it): keep the newer session and its enrichment.
+                await db.commit()
+                return newer
             row, unchanged = await upsert_session(db, analysis, raw.content_hash, raw.id)
             session_id = row.id
             enriched = (
@@ -260,6 +296,9 @@ class ItemProcessor:
         if session_id is not None:
             values["session_id"] = session_id
         async with self._sm() as db:
+            if status == ItemStatus.queued and await _batch_cancelled(db, claim.batch_id):
+                # The batch was cancelled while this item ran: do not run it again.
+                values.update(status=ItemStatus.cancelled, not_before=None)
             # Fenced on the claim token: if our claim went stale and was taken over, drop ours.
             result = await db.execute(
                 update(BatchItem)

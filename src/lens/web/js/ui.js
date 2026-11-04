@@ -33,7 +33,7 @@ export function clear(node) {
 
 // Flockdeck's rule: every status carries a glyph and a word, colour is the third channel.
 export const GLYPHS = {
-  done: "\u2713", running: "\u25CF", queued: "\u25CB", failed: "\u25A0",
+  unenriched: "\u25CB", done: "\u2713", running: "\u25CF", queued: "\u25CB", failed: "\u25A0",
   stuck: "\u25B2", abandoned: "\u25A1", cancelled: "\u25A1",
   "sev-medium": "\u25B2", "sev-high": "\u25A0",
   "c-truncated": "\u25B2", "c-cut_off": "\u25B2", "c-cut-off": "\u25B2",

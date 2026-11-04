@@ -18,7 +18,12 @@ from lens.storage.base import build_store
 
 
 def configure_logging(settings: Settings) -> None:
-    setup_logging(settings.log_level, settings.log_file, settings.data_dir)
+    try:
+        setup_logging(settings.log_level, settings.log_file, settings.data_dir)
+    except OSError:
+        # The log file's directory is not writable (the data directory may be the problem, and
+        # `check-storage` is how to find out): log to standard output instead of crashing.
+        setup_logging(settings.log_level, "-", settings.data_dir)
     logging.getLogger("alembic").setLevel(logging.WARNING)
 
 
@@ -32,7 +37,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     host = args.host or settings.host
     port = args.port or settings.port
     warn_if_not_loopback(host)
-    url = f"http://{'localhost' if host in ('127.0.0.1', '::1') else host}:{port}/"
+    # 0.0.0.0 and :: mean "every interface" and are not an address a browser can use.
+    url = f"http://{'localhost' if host in ('127.0.0.1', '::1', '0.0.0.0', '::') else host}:{port}/"
     print(f"lens {app_version()} at {url}", flush=True)
     print(f"data: {Path(settings.data_dir).expanduser()}", flush=True)
     if args.open:

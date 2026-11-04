@@ -109,6 +109,10 @@ def live_app(database_url: str, tmp_path: pathlib.Path) -> Iterator[LiveApp]:
         except httpx.HTTPError:
             time.sleep(0.1)
     else:
+        # Let the server thread finish: its executor waits on `leave`, and without this the
+        # process cannot exit and the port stays bound.
+        leave.set()
+        thread.join(timeout=30)
         raise AssertionError(f"the server did not start: {failure}")
     try:
         yield LiveApp(url=url, data_dir=data_dir)

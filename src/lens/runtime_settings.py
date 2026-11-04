@@ -86,7 +86,7 @@ def _fingerprint(s: Settings) -> tuple[Any, ...]:
     if s.enricher == "anthropic":
         return ("anthropic", key, s.anthropic_model, s.anthropic_workspace_id)
     if s.enricher == "ollama":
-        return ("ollama", s.ollama_url, s.ollama_model, s.ollama_timeout_seconds)
+        return ("ollama", s.ollama_url, s.ollama_model, s.ollama_timeout_seconds, s.ollama_num_ctx)
     return ("mock",)
 
 
@@ -112,10 +112,8 @@ class DynamicEnricher:
         async with self._lock:
             if self._fingerprint is None or time.monotonic() - self._checked >= self._ttl:
                 settings = await effective_settings(self._sm, self._base)
-                self._checked = time.monotonic()
                 fingerprint = _fingerprint(settings)
                 if fingerprint != self._fingerprint:
-                    self._fingerprint = fingerprint
                     self._inner, self._error = None, None
                     try:
                         # Building a client loads the TLS certificates, which takes seconds on
@@ -125,6 +123,13 @@ class DynamicEnricher:
                     except ValueError as exc:  # a missing key, a URL that is not local
                         self._error = str(exc)
                         log.warning("enricher not usable", extra={"enricher": settings.enricher})
+                    except BaseException:
+                        # Any other failure may be transient: leave the old fingerprint so the
+                        # next call builds again, instead of staying "not configured" for good.
+                        self._fingerprint = None
+                        raise
+                    self._fingerprint = fingerprint
+                self._checked = time.monotonic()
             inner, error = self._inner, self._error
         if inner is None:
             raise EnrichmentError(f"enricher is not configured: {error}", retryable=False)

@@ -181,7 +181,7 @@ input::placeholder { color: var(--idle); }
 .progress-seg { display: block; }
 .seg-done { background: var(--working); fill: var(--working); }
 .seg-running { background: var(--accent); fill: var(--accent); }
-.seg-queued { background: var(--edge-hard); fill: var(--edge-hard); }
+.seg-unenriched, .seg-queued { background: var(--edge-hard); fill: var(--edge-hard); }
 .seg-failed { background: var(--exited); fill: var(--exited); }
 .seg-stuck { background: var(--waiting); fill: var(--waiting); }
 .seg-cancelled, .seg-abandoned { background: var(--idle); fill: var(--idle); }

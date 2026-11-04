@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import os
 import tempfile
+import threading
 from pathlib import Path, PurePosixPath
 
 from lens.storage.base import RecordingExpired
@@ -45,6 +46,9 @@ class FilesystemStore:
     def __init__(self, root: Path | str) -> None:
         self._root = Path(root)
         self._real: Path | None = None
+        # Held while a put creates its directory and temp file, and while a delete removes empty
+        # directories: otherwise a delete can remove the directory a put has just created.
+        self._dirs = threading.Lock()
 
     @property
     def root(self) -> Path:
@@ -100,8 +104,9 @@ class FilesystemStore:
 
     def _put(self, key: str, data: bytes) -> None:
         path = self._path(key)
-        self._mkdirs(path.parent)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
+        with self._dirs:
+            self._mkdirs(path.parent)
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
@@ -132,12 +137,13 @@ class FilesystemStore:
             path.unlink()
         root = self._real_root()
         parent = path.parent
-        while parent != root and parent.is_relative_to(root):
-            try:
-                parent.rmdir()  # only succeeds when empty
-            except OSError:
-                break
-            parent = parent.parent
+        with self._dirs:
+            while parent != root and parent.is_relative_to(root):
+                try:
+                    parent.rmdir()  # only succeeds when empty
+                except OSError:
+                    break
+                parent = parent.parent
 
     def _ping(self) -> None:
         self._root.mkdir(parents=True, exist_ok=True)

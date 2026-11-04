@@ -2,7 +2,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from lens.enrich.prompt import build_user_message, output_schema, supplied_seqs
+from lens.enrich.prompt import MAX_LIST_ITEMS, build_user_message, output_schema, supplied_seqs
+from lens.recording.models import Analysis
 
 
 def _walk_objects(node: Any, defs: dict[str, Any]) -> list[dict[str, Any]]:
@@ -84,3 +85,16 @@ def test_digest_seqs_are_supplied(make_analysis: Callable[..., Any]) -> None:
         risky_actions=[{"seq": 9, "tool": "Bash", "summary": "x", "severity": "high", "rule": "r"}],
     )
     assert supplied_seqs(a) == {2, 40, 17, 9}
+
+
+def test_facts_from_the_recording_are_bounded(make_analysis: Callable[..., Analysis]) -> None:
+    analysis = make_analysis()
+    analysis.model = "m" * 5_000_000
+    analysis.metrics.models = [f"model-{i}-" + "x" * 1000 for i in range(5000)]
+    analysis.metrics.tool_mix = {f"tool-{i}-" + "y" * 1000: i + 1 for i in range(5000)}
+    message = build_user_message(analysis)
+    assert len(message) < 60_000
+    facts = json.loads(message.split("<facts>\n")[1].split("\n</facts>")[0])
+    assert len(facts["metrics"]["tool_mix"]) <= MAX_LIST_ITEMS + 1
+    assert max(facts["metrics"]["tool_mix"].values()) == 5000  # the biggest entries stay
+    assert len(facts["metrics"]["models"]) <= MAX_LIST_ITEMS + 1

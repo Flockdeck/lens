@@ -177,3 +177,20 @@ def test_allowed_hosts_can_be_given_as_a_name_a_list_or_json(
 def test_a_name_from_the_environment_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ALLOWED_HOSTS", "127.0.0.1")
     assert normalise_hosts(Settings().allowed_hosts) == {"127.0.0.1"}  # localhost is not in it
+
+
+@pytest.mark.parametrize("host", ["[evil", "[::1", "[]:8000"])
+async def test_a_malformed_bracketed_host_is_a_421_not_a_500(
+    client: httpx.AsyncClient, host: str
+) -> None:
+    resp = await client.get("/healthz", headers={"Host": host})
+    assert resp.status_code == 421
+    assert resp.json() == {"detail": "host not allowed"}
+
+
+async def test_a_malformed_bracketed_origin_is_a_403_not_a_500(
+    loopback_client: httpx.AsyncClient,
+) -> None:
+    resp = await loopback_client.post("/batches/1/cancel", headers={"Origin": "http://[x"})
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "cross-origin request refused"}

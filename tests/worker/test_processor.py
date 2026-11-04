@@ -250,3 +250,55 @@ async def test_lost_claim_does_not_overwrite_the_new_holder(sm, store):
         await db.commit()
     await processor(sm, store, FakeEnricher()).process(claim)
     assert (await get_item(sm, a)).status == ItemStatus.running
+
+
+def test_an_aware_time_is_converted_to_utc_not_just_stripped_of_its_offset():
+    from datetime import UTC, datetime, timedelta, timezone
+
+    from lens.worker.processor import _naive
+
+    plus_two = datetime(2026, 10, 1, 10, 15, 30, tzinfo=timezone(timedelta(hours=2)))
+    assert _naive(plus_two) == datetime(2026, 10, 1, 8, 15, 30)
+    assert _naive(datetime(2026, 10, 1, 10, 0, tzinfo=UTC)) == datetime(2026, 10, 1, 10, 0)
+    assert _naive(datetime(2026, 10, 1, 10, 0)) == datetime(2026, 10, 1, 10, 0)
+    assert _naive(None) is None
+
+
+async def test_a_late_item_for_an_older_upload_keeps_the_newer_session(sm, store):
+    enricher = FakeEnricher()
+    _, (old,) = await make_batch(sm, store, [("v1.jsonl", recording("s1", extra="v1"))])
+    _, (new,) = await make_batch(sm, store, [("v2.jsonl", recording("s1", extra="v2"))])
+    old_claim, new_claim = await claim_items(sm, 2)
+    p = processor(sm, store, enricher)
+    await p.process(new_claim)
+    async with sm() as db:
+        stored = (await db.execute(select(Session))).scalar_one()
+        newer_hash, newer_raw = stored.content_hash, stored.raw_id
+    await p.process(old_claim)  # the older upload's item ran late (a retry, for example)
+
+    old_item = await get_item(sm, old)
+    assert old_item.status == ItemStatus.done
+    assert enricher.calls == 1  # the older recording was not enriched
+    async with sm() as db:
+        stored = (await db.execute(select(Session))).scalar_one()
+        assert (stored.content_hash, stored.raw_id) == (newer_hash, newer_raw)
+        assert old_item.session_id == stored.id
+
+
+async def test_a_retryable_failure_in_a_cancelled_batch_is_not_requeued(sm, store):
+    from lens.worker.queue import cancel_batch
+
+    batch_id, (running, waiting) = await make_batch(
+        sm, store, [("a.jsonl", recording("s1")), ("b.jsonl", recording("s2"))]
+    )
+    (claim,) = await claim_items(sm, 1)
+    async with sm() as db:
+        await cancel_batch(db, batch_id)  # b is cancelled; a is left to finish
+        await db.commit()
+
+    await processor(sm, store, FakeEnricher([retryable("rate limited")])).process(claim)
+
+    assert (await get_item(sm, running)).status == ItemStatus.cancelled
+    assert (await get_item(sm, waiting)).status == ItemStatus.cancelled
+    assert await claim_items(sm, 5) == []
+    assert (await get_batch(sm, batch_id)).status == BatchStatus.cancelled

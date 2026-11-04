@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.1:8b"
     ollama_timeout_seconds: float = 120.0
+    # Context window asked of Ollama. Its own default (2048 or 4096 tokens) silently cuts a long
+    # digest off at the start, so the summary is of whatever fits.
+    ollama_num_ctx: int = 16384
 
     # Upload limits. Flockdeck caps a recording at 16 MiB.
     max_file_bytes: int = 17 * 1024 * 1024

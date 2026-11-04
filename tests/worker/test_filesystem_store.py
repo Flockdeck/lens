@@ -175,3 +175,14 @@ async def test_many_concurrent_writes_into_directories_that_do_not_exist_yet(tmp
         keys = [key() for _ in range(8)]
         await asyncio.gather(*(store.put(k, b"x") for k in keys))
         assert [await store.get(k) for k in keys] == [b"x"] * 8
+
+
+async def test_a_delete_cannot_remove_the_directory_a_put_just_made(fs_store):
+    """The month directory holds one file. Deleting it empties the directory while another put
+    is between creating the directory and writing its temp file."""
+    for _ in range(100):
+        old, new = key(), key()
+        await fs_store.put(old, b"old")
+        await asyncio.gather(fs_store.delete(old), fs_store.put(new, b"new"))
+        assert await fs_store.get(new) == b"new"
+        await fs_store.delete(new)

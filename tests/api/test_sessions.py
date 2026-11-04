@@ -297,3 +297,39 @@ async def test_empty_database(client: httpx.AsyncClient) -> None:
     assert (await client.get("/sessions")).json() == {"total": 0, "items": []}
     assert (await client.get("/stats/trends")).json() == []
     assert (await client.get("/stats/compare")).json() == []
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"to": "9999-12-31"},  # one day past the last date datetime can hold
+        {"from": "0001-01-01T00:00:00+05:00"},  # before the first instant once moved to UTC
+        {"to": "9999-12-31T23:59:59-05:00"},
+    ],
+)
+async def test_a_date_at_the_edge_of_the_calendar_is_a_422(
+    client: httpx.AsyncClient, params: dict[str, str]
+) -> None:
+    assert (await client.get("/sessions", params=params)).status_code == 422
+
+
+async def test_a_compact_iso_date_in_to_covers_the_whole_day(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore
+) -> None:
+    await seed(db, store, "morning", started=datetime(2026, 1, 1, 9))
+    await seed(db, store, "afternoon", started=datetime(2026, 1, 1, 14))
+    for value in ("20260101", "2026-01-01"):
+        body = (await client.get("/sessions", params={"to": value})).json()
+        assert body["total"] == 2, value
+
+
+async def test_an_id_beyond_64_bits_is_a_422_not_a_500(client: httpx.AsyncClient) -> None:
+    big = 99999999999999999999
+    assert (await client.get(f"/sessions/{big}")).status_code == 422
+    assert (await client.get(f"/sessions/{big}/events")).status_code == 422
+    assert (await client.post(f"/sessions/{big}/enrich")).status_code == 422
+    assert (await client.delete(f"/sessions/{big}")).status_code == 422
+    assert (await client.get(f"/batches/{big}")).status_code == 422
+    assert (await client.post(f"/batches/{big}/cancel")).status_code == 422
+    assert (await client.get("/sessions", params={"offset": big})).status_code == 422
+    assert (await client.get(f"/sessions/{2**63 - 1}")).status_code == 404

@@ -37,16 +37,29 @@ def new_object_key(prefix: str) -> str:
 
 async def store_raw(session: AsyncSession, store: RecordingStore, data: bytes) -> RawRecording:
     """Hash `data`, put the file, then add the row (flushed, not committed). Putting first
-    means a row never points at a missing file; a failure after the put leaves an orphan
-    file, which is unreferenced and harmless."""
+    means a row never points at a missing file; a failure to add the row deletes the file
+    again."""
     key = new_object_key(get_settings().store_prefix)
     await store.put(key, data)
     raw = RawRecording(
         content_hash=hashlib.sha256(data).hexdigest(), size_bytes=len(data), object_key=key
     )
-    session.add(raw)
-    await session.flush()
+    try:
+        session.add(raw)
+        await session.flush()
+    except BaseException:
+        await discard_objects(store, [key])  # no row will ever point at it
+        raise
     return raw
+
+
+async def discard_objects(store: RecordingStore, keys: Sequence[str]) -> None:
+    """Delete stored files that no row points at (best effort): the rows were rolled back."""
+    for key in keys:
+        try:
+            await store.delete(key)
+        except Exception:
+            log.warning("orphan object delete failed", extra={"key": key})
 
 
 async def read_raw(session: AsyncSession, store: RecordingStore, raw_id: int) -> bytes:

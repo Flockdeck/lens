@@ -6,6 +6,7 @@ within a couple of seconds without a restart. `null` for a field removes the ove
 back the value from the environment.
 """
 
+import asyncio
 import logging
 from typing import Annotated, Any, Literal
 
@@ -115,13 +116,19 @@ async def update_settings(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    overrides = await load_overrides(sm)
-    after = {k: v for k, v in overrides.items() if k not in changes}
-    after.update({k: v for k, v in changes.items() if v is not None})
-    if apply_overrides(base, after).enricher == "anthropic" and key_source(base, after) is None:
-        raise HTTPException(422, "the anthropic enricher needs an API key")
-
-    await save_overrides(sm, changes)
+    # Read, check and save as one step: two requests that each pass the check against the same
+    # snapshot could otherwise save a combination (enricher anthropic, no key) neither allows.
+    state = request.app.state
+    lock: asyncio.Lock | None = getattr(state, "settings_lock", None)
+    if lock is None:  # no await between the check and the assignment, so one lock per app
+        lock = state.settings_lock = asyncio.Lock()
+    async with lock:
+        overrides = await load_overrides(sm)
+        after = {k: v for k, v in overrides.items() if k not in changes}
+        after.update({k: v for k, v in changes.items() if v is not None})
+        if apply_overrides(base, after).enricher == "anthropic" and key_source(base, after) is None:
+            raise HTTPException(422, "the anthropic enricher needs an API key")
+        await save_overrides(sm, changes)
     # Names only: never the key, and nothing a caller chose.
     log.info("settings changed", extra={"changed": sorted(changes)})
     return _view(base, after)

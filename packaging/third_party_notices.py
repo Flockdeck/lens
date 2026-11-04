@@ -38,7 +38,7 @@ class Package:
     version: str
     licence: str = ""
     home: str = ""
-    texts: dict[str, str] = field(default_factory=dict)  # file name -> text
+    texts: dict[str, str] = field(default_factory=dict)  # platform/path in dist-info -> text
     platforms: set[str] = field(default_factory=set)
 
 
@@ -94,7 +94,9 @@ def read_target(target: Path, platform: str, found: dict[tuple[str, str], Packag
                 path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip("\n")
             )
             if text and text not in pkg.texts.values():
-                pkg.texts[path.name] = text
+                # Keyed by path, not file name: licenses/LICENSE and licenses/third_party/LICENSE
+                # are different texts that share a name.
+                pkg.texts[f"{platform}/{path.relative_to(info).as_posix()}"] = text
 
 
 def collect() -> list[Package]:

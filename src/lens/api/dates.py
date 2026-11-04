@@ -16,16 +16,19 @@ RANGE_DOC = (
 def _parse(value: str, name: str) -> tuple[datetime, bool]:
     """Return (naive UTC instant, was_date_only)."""
     try:
-        if len(value) == 10:
+        try:
+            # Any date form `date.fromisoformat` takes, including 20260101, is a whole day.
             return datetime.combine(date.fromisoformat(value), datetime.min.time()), True
+        except ValueError:
+            pass
         parsed = datetime.fromisoformat(value)
-    except ValueError as exc:
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    except (ValueError, OverflowError) as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"invalid `{name}`: expected ISO date or datetime",
         ) from exc
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
     return parsed, False
 
 
@@ -39,5 +42,12 @@ def range_conditions(
         conditions.append(column >= _parse(from_, "from")[0])
     if to is not None:
         end, date_only = _parse(to, "to")
-        conditions.append(column < end + timedelta(days=1) if date_only else column <= end)
+        if date_only:
+            try:
+                end += timedelta(days=1)
+            except OverflowError:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid `to`: date out of range"
+                ) from None
+        conditions.append(column < end if date_only else column <= end)
     return conditions
