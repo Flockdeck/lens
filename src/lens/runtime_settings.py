@@ -86,7 +86,7 @@ def _fingerprint(s: Settings) -> tuple[Any, ...]:
     if s.enricher == "anthropic":
         return ("anthropic", key, s.anthropic_model, s.anthropic_workspace_id)
     if s.enricher == "ollama":
-        return ("ollama", s.ollama_url, s.ollama_model, s.ollama_timeout_seconds)
+        return ("ollama", s.ollama_url, s.ollama_model, s.ollama_timeout_seconds, s.ollama_num_ctx)
     return ("mock",)
 
 

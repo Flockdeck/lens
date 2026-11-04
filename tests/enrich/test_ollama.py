@@ -243,6 +243,8 @@ def test_local_urls_are_accepted(url: str) -> None:
         "http://127.0.0.1.evil.example:11434",
         "http://localhost.evil.example",
         "ftp://127.0.0.1",
+        "http://localhost:abc",
+        "http://localhost:99999",
         "127.0.0.1:11434",
         "",
     ],
@@ -274,3 +276,25 @@ def test_client_ignores_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> No
     e = OllamaEnricher(URL, "m")
     assert e._client.follow_redirects is False
     assert not e._client._trust_env  # type: ignore[attr-defined]
+
+
+async def test_the_context_window_is_requested(make_analysis: Callable[..., Any]) -> None:
+    fake = FakeOllama(chat(json.dumps(GOOD)))
+    await fake.enricher().enrich(make_analysis())
+    assert fake.bodies()[0]["options"]["num_ctx"] == 16384
+
+    fake = FakeOllama(chat(json.dumps(GOOD)))
+    await fake.enricher(num_ctx=8192).enrich(make_analysis())
+    assert fake.bodies()[0]["options"]["num_ctx"] == 8192
+
+    e = build_enricher(Settings(enricher="ollama", ollama_url=URL, ollama_num_ctx=32768))
+    assert isinstance(e, OllamaEnricher) and e._num_ctx == 32768
+
+
+async def test_a_prompt_that_fills_the_window_is_logged(
+    make_analysis: Callable[..., Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    fake = FakeOllama(chat(json.dumps(GOOD), i=4096))
+    with caplog.at_level(logging.WARNING, logger="lens.enrich.ollama"):
+        await fake.enricher(num_ctx=4096).enrich(make_analysis())
+    assert "context window" in caplog.text

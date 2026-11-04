@@ -28,6 +28,7 @@ from lens.recording.models import Analysis
 log = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 4096
+DEFAULT_NUM_CTX = 16384
 LOCAL_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "host.docker.internal"})
 
 
@@ -58,11 +59,13 @@ class OllamaEnricher:
         timeout_seconds: float = 120.0,
         max_output_attempts: int = 3,
         max_tokens: int = MAX_OUTPUT_TOKENS,
+        num_ctx: int = DEFAULT_NUM_CTX,
     ) -> None:
         self._base_url = require_local_url(base_url)
         self._model = model
         self._max_attempts = max_output_attempts
         self._max_tokens = max_tokens
+        self._num_ctx = num_ctx
         # trust_env=False: never route through a proxy named in the environment.
         self._client = client or httpx.AsyncClient(
             timeout=timeout_seconds, trust_env=False, follow_redirects=False
@@ -74,6 +77,7 @@ class OllamaEnricher:
             settings.ollama_url,
             settings.ollama_model,
             timeout_seconds=settings.ollama_timeout_seconds,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     async def aclose(self) -> None:
@@ -102,7 +106,14 @@ class OllamaEnricher:
             except EnrichmentError as exc:
                 exc.input_tokens, exc.output_tokens = input_tokens, output_tokens
                 raise
-            input_tokens += int(body.get("prompt_eval_count") or 0)
+            prompt_tokens = int(body.get("prompt_eval_count") or 0)
+            input_tokens += prompt_tokens
+            if prompt_tokens >= self._num_ctx:
+                # Ollama answers 200 and drops the start of a prompt that does not fit.
+                log.warning(
+                    "prompt filled the context window (%d tokens); raise OLLAMA_NUM_CTX",
+                    self._num_ctx,
+                )
             output_tokens += int(body.get("eval_count") or 0)
 
             if body.get("done_reason") == "length":
@@ -166,7 +177,7 @@ class OllamaEnricher:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},
             ],
-            "options": {"temperature": 0, "num_predict": max_tokens},
+            "options": {"temperature": 0, "num_predict": max_tokens, "num_ctx": self._num_ctx},
         }
         try:
             response = await self._client.post(f"{self._base_url}/api/chat", json=payload)
