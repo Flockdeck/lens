@@ -18,7 +18,12 @@ from lens.storage.base import build_store
 
 
 def configure_logging(settings: Settings) -> None:
-    setup_logging(settings.log_level, settings.log_file, settings.data_dir)
+    try:
+        setup_logging(settings.log_level, settings.log_file, settings.data_dir)
+    except OSError:
+        # The log file's directory is not writable (the data directory may be the problem, and
+        # `check-storage` is how to find out): log to standard output instead of crashing.
+        setup_logging(settings.log_level, "-", settings.data_dir)
     logging.getLogger("alembic").setLevel(logging.WARNING)
 
 

@@ -44,3 +44,17 @@ def test_the_old_split_commands_are_gone():
     for old in ("api", "worker", "migrate", "check-bucket"):
         with pytest.raises(SystemExit):
             run(old)
+
+
+def test_commands_report_an_unwritable_data_directory_when_not_on_a_terminal(
+    tmp_path, monkeypatch, capsys
+):
+    """With no LOG_FILE and stdout not a terminal, logs go to a file in the data directory."""
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "data_dir", str(blocker / "data"))
+    monkeypatch.setattr(settings, "log_file", "")
+    assert run("check-storage") == 1
+    assert "probe failed" in capsys.readouterr().out
+    assert run("version") == 0
