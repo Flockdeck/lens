@@ -104,3 +104,27 @@ async def test_cancel_then_retry(
     retried = (await client.post(f"/batches/{batch_id}/retry")).json()
     assert retried["counts"]["queued"] == 1
     assert retried["items"][0]["error"] is None
+
+
+async def test_files_put_before_a_failure_are_deleted_again(
+    client: httpx.AsyncClient, db: AsyncSession, store: InMemoryStore, make_jsonl: Any
+) -> None:
+    """The disk fills at the third file: the first two have no row, so nothing would ever
+    delete them."""
+    put = store.put
+    calls = 0
+
+    async def third_put_fails(key: str, data: bytes) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise OSError("no space left on device")
+        await put(key, data)
+
+    store.put = third_put_fails  # type: ignore[method-assign]
+    resp = await client.post(
+        "/batches", files=files(*((f"{i}.jsonl", make_jsonl(i)) for i in (1, 2, 3, 4)))
+    )
+    assert resp.status_code == 503
+    assert store.objects == {}
+    assert (await db.execute(select(RawRecording))).scalars().all() == []

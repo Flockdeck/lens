@@ -78,9 +78,9 @@ async def submit_batch(
         form = await request.form(max_files=settings.max_files_per_batch, max_fields=10)
     except MultiPartException as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed multipart request") from exc
+    accepted: list[tuple[str, RawRecording]] = []
     try:
         parts = [p for p in form.getlist("files") if isinstance(p, UploadFile)]
-        accepted: list[tuple[str, RawRecording]] = []
         rejected: list[RejectedFile] = []
         total = 0
         for part in parts:
@@ -93,9 +93,7 @@ async def submit_batch(
                 rejected.append(RejectedFile(filename=name, reason="request size limit exceeded"))
                 continue
             # One file in memory at a time: put it in the store, then drop the bytes. If a later
-            # step fails (or the transaction rolls back) after some puts, those files stay in the
-            # store unreferenced: the rows roll back with the transaction, so no raw_recordings
-            # row points at them.
+            # step fails the rows roll back, so the files already put are deleted again below.
             try:
                 raw = await queue.store_raw(db, store, outcome)
             except SQLAlchemyError:
@@ -120,6 +118,15 @@ async def submit_batch(
         batch = await queue.create_batch(db, store, accepted)
         batch_id = batch.id
         await db.commit()
+    except BaseException:
+        # Nothing was committed, so no row points at the files put so far: delete them, or
+        # retention cleanup (which works from rows) would never find them.
+        for _, raw in accepted:
+            try:
+                await store.delete(raw.object_key)
+            except Exception:
+                log.warning("orphan object delete failed", extra={"key": raw.object_key})
+        raise
     finally:
         await form.close()
     log.info(
