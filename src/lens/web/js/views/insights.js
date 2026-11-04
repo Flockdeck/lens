@@ -5,6 +5,8 @@ import { h, clear, skeleton, errorBox, empty, stat } from "../ui.js";
 import { stackedBars, lines } from "../charts.js";
 
 const OUTCOMES = ["done", "abandoned", "stuck"];
+// Sessions with no enrichment yet (or whose enrichment failed) come back as "unenriched".
+const BUCKET_OUTCOMES = [...OUTCOMES, "unenriched"];
 
 export function render(root) {
   const ctrl = new AbortController();
@@ -51,7 +53,7 @@ export function render(root) {
     if (!rows.length) return [controls, empty("No sessions in this range", "Submit recordings to see trends.")];
 
     const buckets = rows.map((r) => r.bucket);
-    const counts = stackedBars(rows.map((r) => ({ bucket: r.bucket, values: r.outcomes || {} })), OUTCOMES,
+    const counts = stackedBars(rows.map((r) => ({ bucket: r.bucket, values: r.outcomes || {} })), BUCKET_OUTCOMES,
       `Sessions per ${interval} by outcome`);
     const rates = lines(buckets, [
       { name: "tool error rate", cls: "line-a", points: rows.map((r) => r.tool_error_rate ?? null) },
@@ -62,15 +64,15 @@ export function render(root) {
     return [controls,
       h("div", { class: "cols-2" },
         h("figure", null, h("figcaption", null, `Sessions per ${interval}`), counts,
-          legend(OUTCOMES.map((o) => [`seg-${o}`, o, GLYPHS[o]]))),
+          legend(BUCKET_OUTCOMES.map((o) => [`seg-${o}`, o, GLYPHS[o]]))),
         h("figure", null, h("figcaption", null, "Quality signals"), rates,
           legend([["line-a", "Tool error rate"], ["line-b", "Average frustration"]]))),
       h("details", null, h("summary", null, "Data table"),
         h("div", { class: "table-wrap" }, h("table", { class: "table" },
-          h("thead", null, h("tr", null, ["Bucket", "Sessions", "Done", "Abandoned", "Stuck", "Avg frustration", "Tool error rate"].map((t) => h("th", { scope: "col" }, t)))),
+          h("thead", null, h("tr", null, ["Bucket", "Sessions", "Done", "Abandoned", "Stuck", "Unenriched", "Avg frustration", "Tool error rate"].map((t) => h("th", { scope: "col" }, t)))),
           h("tbody", null, rows.map((r) => h("tr", null,
             h("td", null, r.bucket), h("td", { class: "num" }, r.sessions ?? sum(r.outcomes)),
-            ...OUTCOMES.map((o) => h("td", { class: "num" }, (r.outcomes || {})[o] || 0)),
+            ...BUCKET_OUTCOMES.map((o) => h("td", { class: "num" }, (r.outcomes || {})[o] || 0)),
             h("td", { class: "num" }, r.avg_frustration == null ? "" : r.avg_frustration.toFixed(2)),
             h("td", { class: "num" }, fmtPct(r.tool_error_rate))))))))];
   });
