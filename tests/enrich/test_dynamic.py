@@ -80,3 +80,28 @@ async def test_the_settings_are_read_at_most_every_ttl(
     await enricher.enrich(make_analysis())
     await save_overrides(sm, {"enricher": "ollama", "ollama_url": "http://example.com"})
     assert (await enricher.enrich(make_analysis())).model == "mock"  # not looked at again yet
+
+
+async def test_a_transient_build_failure_is_retried_on_the_next_item(
+    sm: async_sessionmaker,
+    make_analysis: Callable[..., Analysis],  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lens import runtime_settings
+
+    real = runtime_settings.build_enricher
+    calls: list[int] = []
+
+    def flaky(settings: Settings) -> object:
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("certificates not readable yet")
+        return real(settings)
+
+    monkeypatch.setattr(runtime_settings, "build_enricher", flaky)
+    enricher = DynamicEnricher(sm, Settings(), ttl=3600)
+    with pytest.raises(OSError):
+        await enricher.enrich(make_analysis())
+    # Not "enricher is not configured: None": the build is attempted again.
+    assert (await enricher.enrich(make_analysis())).model == "mock"
+    assert len(calls) == 2
