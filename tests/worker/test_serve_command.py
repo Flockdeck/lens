@@ -150,3 +150,17 @@ class TestWatchParent:
         assert parent_watch.watch_parent(done.set) is True
         assert done.wait(5)
         assert real is not None
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::"])  # noqa: S104
+def test_an_all_interfaces_bind_prints_a_url_the_service_accepts(
+    fake_uvicorn: list[FakeServer],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    host: str,
+) -> None:
+    from lens.api import app as app_module
+
+    monkeypatch.setattr(app_module, "warn_if_not_loopback", lambda host: True)
+    cli.main(["serve", "--host", host, "--port", "9125"])
+    assert "http://localhost:9125/" in capsys.readouterr().out
