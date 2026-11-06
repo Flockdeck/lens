@@ -145,6 +145,12 @@ export function statusDetails(cfg) {
       retention,
     ];
   }
+  if (!isLocalOnly(cfg)) {
+    // Either the settings could not be read, or they name a store or enricher that is not known to
+    // stay on this machine: in neither case can "nothing is uploaded" be said.
+    const why = cfg ? "this server's storage or enrichment is not one known to stay on this machine" : "the server's settings could not be read";
+    return [`Whether anything is uploaded is not known: ${why}. Recordings are kept by this server.`, retention];
+  }
   return ["Nothing is uploaded. Recordings stay on this machine and are read only by this server.", retention];
 }
 
