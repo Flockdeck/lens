@@ -28,6 +28,29 @@ async def test_static_ui_hides_python_sources(client: httpx.AsyncClient) -> None
     assert (await client.get("/__init__.py")).status_code == 404
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "/__init__.PY",
+        "/__init__.Py",
+        "/__init__.py.",
+        "/__init__.py%20",
+        "/__init__.py::$DATA",
+        "/__pycache__/__init__.cpython-312.PYC",
+        "/__init__.pyc.",
+    ],
+)
+async def test_static_ui_hides_python_sources_under_other_spellings(
+    client: httpx.AsyncClient, name: str
+) -> None:
+    assert (await client.get(name)).status_code == 404
+
+
+async def test_static_ui_still_serves_its_assets(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/")).status_code == 200
+    assert (await client.get("/js/lib.js")).status_code == 200
+
+
 async def test_readyz_503_when_store_down(client: httpx.AsyncClient, store: InMemoryStore) -> None:
     async def down() -> None:
         raise ConnectionError("store down")

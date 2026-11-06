@@ -41,6 +41,10 @@ assert.equal(lib.isLocalOnly({ ...cfg, enricher: "anthropic" }), false);
 assert.equal(lib.isRemoteEnrichment({ ...cfg, enricher: "anthropic" }), true);
 assert.equal(lib.isRemoteEnrichment(cfg), false);
 assert.match(lib.statusDetails(cfg)[0], /^Nothing is uploaded/);
+// With the settings unreadable, or not known to be local, nothing is promised.
+assert.doesNotMatch(lib.statusDetails(null).join(" "), /Nothing is uploaded/);
+assert.match(lib.statusDetails(null)[0], /not known/);
+assert.doesNotMatch(lib.statusDetails({ ...cfg, storage: "s3" }).join(" "), /Nothing is uploaded/);
 assert.match(lib.statusDetails({ ...cfg, enricher: "anthropic" })[0], /Raw recordings stay on this machine.*sends a bounded digest.*Anthropic API/i);
 assert.doesNotMatch(lib.statusDetails({ ...cfg, enricher: "anthropic" }).join(" "), /Nothing is uploaded/);
 assert.equal(lib.statusLine(null), "Status unavailable");

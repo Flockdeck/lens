@@ -43,7 +43,11 @@ from lens.db.session import make_engine, read_sessionmaker
 
 log = logging.getLogger("lens.api")
 
-_HIDDEN_SUFFIXES = (".py", ".pyc")
+# The web directory serves only these kinds of file. An allow-list, not a list of hidden
+# suffixes: Windows opens a name without regard to case, drops trailing dots and spaces and
+# accepts stream suffixes such as `::$DATA`, so `__init__.PY` and `__init__.py.` reach the real
+# source file and a deny-list on the text of the name misses them.
+_SERVED_SUFFIXES = (".html", ".css", ".js", ".svg", ".txt", ".woff2", ".ico", ".png")
 # Responses under these prefixes carry recording-derived data: never cache them.
 _NO_STORE_PREFIXES = ("/sessions", "/batches", "/stats", "/config", "/settings")
 
@@ -65,13 +69,23 @@ def warn_if_not_loopback(host: str) -> bool:
     return not loopback
 
 
+def _is_served(path: str) -> bool:
+    """True for the root, a folder (served as its index.html) or a name whose suffix is on the
+    allow-list. Case, trailing dots and spaces are ignored the way Windows ignores them, so a
+    name that would open a source file under another spelling is not on it either."""
+    if path in ("", ".") or path.endswith("/"):
+        return True
+    name = path.replace("\\", "/").rsplit("/", 1)[-1].rstrip(". ").lower()
+    return name.endswith(_SERVED_SUFFIXES)
+
+
 class WebFiles(StaticFiles):
-    """StaticFiles that never serves the package's Python sources, and that makes the browser
-    check with the server each time (a cheap 304 when nothing changed), so an upgraded program
-    never runs against the scripts of the old one."""
+    """StaticFiles that serves only web assets, never the package's Python sources, and that makes
+    the browser check with the server each time (a cheap 304 when nothing changed), so an upgraded
+    program never runs against the scripts of the old one."""
 
     async def get_response(self, path: str, scope: Scope) -> StarletteResponse:
-        if path.endswith(_HIDDEN_SUFFIXES):
+        if not _is_served(path):
             response = await super().get_response("\0not-found", scope)
         else:
             response = await super().get_response(path, scope)
