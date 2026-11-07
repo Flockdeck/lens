@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 
 import pytest
@@ -9,7 +10,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from lens.config import Settings
-from lens.enrich.base import EnrichmentError
+from lens.enrich.base import EnrichmentError, EnrichmentResult
 from lens.recording.models import Analysis
 from lens.runtime_settings import DynamicEnricher, save_overrides
 from tests.dbutil import clear_tables, test_engine
@@ -105,3 +106,69 @@ async def test_a_transient_build_failure_is_retried_on_the_next_item(
     # Not "enricher is not configured: None": the build is attempted again.
     assert (await enricher.enrich(make_analysis())).model == "mock"
     assert len(calls) == 2
+
+
+class _SlowEnricher:
+    """An enricher that waits for `release` inside enrich and records whether it was closed."""
+
+    def __init__(self, release: asyncio.Event) -> None:
+        self.release = release
+        self.started = asyncio.Event()
+        self.closed = False
+        self.closed_during_call: bool | None = None
+
+    async def enrich(self, analysis: Analysis) -> EnrichmentResult:
+        self.started.set()
+        await self.release.wait()
+        self.closed_during_call = self.closed
+        return EnrichmentResult(
+            summary="s",
+            category="other",
+            outcome="done",
+            frustration=0.0,
+            model="slow",
+            prompt_version="t",
+        )
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_a_replaced_enricher_is_closed_after_its_in_flight_call_ends(
+    sm: async_sessionmaker,
+    make_analysis: Callable[..., Analysis],  # type: ignore[type-arg]
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lens import runtime_settings
+
+    release = asyncio.Event()
+    built: list[_SlowEnricher] = [_SlowEnricher(release)]
+
+    def build(settings: Settings) -> object:
+        return built[0]
+
+    monkeypatch.setattr(runtime_settings, "build_enricher", build)
+    enricher = DynamicEnricher(sm, Settings(), ttl=0)
+    first = asyncio.create_task(enricher.enrich(make_analysis()))
+    await asyncio.wait_for(built[0].started.wait(), 10)
+
+    await save_overrides(sm, {"enricher": "ollama"})  # a new fingerprint: builds a second one
+    second_release = asyncio.Event()
+    second_release.set()
+    # The second enricher is built on the next call; make it return at once.
+    monkeypatch.setattr(
+        runtime_settings,
+        "build_enricher",
+        lambda s: built.append(_SlowEnricher(second_release)) or built[-1],
+    )
+    await enricher.enrich(make_analysis())
+    assert built[0].closed is False  # still in use by the first call
+
+    release.set()
+    await first
+    assert built[0].closed_during_call is False
+    assert built[0].closed is True
+    assert built[1].closed is False
+
+    await enricher.aclose()
+    assert built[1].closed is True

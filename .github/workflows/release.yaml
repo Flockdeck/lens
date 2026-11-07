@@ -59,16 +59,19 @@ jobs:
       tag: ${{ needs.version.outputs.tag }}
       retention-days: 30
 
-  # One release at a time, queued rather than cancelled: a release stopped part way is published
-  # on GitHub and missing from the CDN. The tests still run side by side; only publishing takes
-  # turns. The job runs in the release environment, which holds the signing key and the bucket's
+  # One group per tag, queued rather than cancelled: a second run of the same tag (a repeat from
+  # workflow_dispatch) waits for the first, while a different tag gets its own group. A single
+  # shared group held only one pending run, so a third tag pushed while one was publishing
+  # cancelled the second, and that release was never published. Releases of different tags can
+  # now overlap; neither the GitHub step nor publish-downloads.sh lets an older release take
+  # "latest" back from a newer one. The job runs in the release environment, which holds the signing key and the bucket's
   # credentials. Kept as repository secrets, a workflow run on any branch could read them.
   release:
     needs: [test, build, version]
     runs-on: ubuntu-latest
     environment: release
     concurrency:
-      group: release
+      group: release-${{ github.event.inputs.tag || github.ref_name }}
       cancel-in-progress: false
     permissions:
       contents: write

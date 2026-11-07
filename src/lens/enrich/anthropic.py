@@ -59,6 +59,11 @@ class AnthropicEnricher:
         client = anthropic.AsyncAnthropic(api_key=key, default_headers=headers)
         return cls(client, settings.anthropic_model)
 
+    async def aclose(self) -> None:
+        close = getattr(self._client, "close", None)  # a test fake may have none
+        if close is not None:
+            await close()
+
     async def enrich(self, analysis: Analysis) -> EnrichmentResult:
         user_message = build_user_message(analysis)
         allowed_seqs = supplied_seqs(analysis)

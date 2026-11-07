@@ -111,6 +111,51 @@ async def test_the_same_origin_and_plain_scripts_can_upload(
         assert resp.status_code == 202, (headers, resp.text)
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:5173",  # a dev server, or any program, on another port of this machine
+        "http://127.0.0.1:9999",
+        "http://localhost",  # port 80 is not 8000
+        "http://localhost:abc",
+        "http://localhost:99999",
+        "ftp://localhost:8000",
+    ],
+)
+async def test_a_page_on_another_local_port_cannot_write(
+    loopback_client: httpx.AsyncClient, db: AsyncSession, make_jsonl: Any, origin: str
+) -> None:
+    resp = await loopback_client.post(
+        "/batches", files=files(("a.jsonl", make_jsonl(1))), headers={"Origin": origin}
+    )
+    assert resp.status_code == 403, origin
+    assert resp.json() == {"detail": "cross-origin request refused"}
+    assert await db.scalar(select(func.count()).select_from(BatchItem)) == 0
+
+
+async def test_the_origin_port_is_compared_to_the_host_port_not_to_a_fixed_one(
+    loopback_client: httpx.AsyncClient, make_jsonl: Any
+) -> None:
+    """The page lens serves is addressed on whatever port it was started on, or on the scheme's
+    default when it sits behind one (Host and Origin then both leave the port out)."""
+    for headers in (
+        {"Host": "localhost:5173", "Origin": "http://localhost:5173"},
+        {"Host": "localhost", "Origin": "http://localhost"},
+        {"Host": "localhost:80", "Origin": "http://localhost"},
+        {"Host": "localhost", "Origin": "http://localhost:80"},
+        {"Host": "localhost", "Origin": "https://localhost:443"},
+        {"Host": "localhost:8000", "Origin": "http://LOCALHOST:8000"},
+    ):
+        resp = await loopback_client.post(
+            "/batches", files=files(("a.jsonl", make_jsonl(1))), headers=headers
+        )
+        assert resp.status_code == 202, (headers, resp.text)
+    resp = await loopback_client.post(
+        "/batches/1/cancel", headers={"Host": "localhost:5173", "Origin": "http://localhost:8000"}
+    )
+    assert resp.status_code == 403
+
+
 @pytest.mark.parametrize(("method", "path"), WRITES)
 async def test_every_write_refuses_a_foreign_origin(
     loopback_client: httpx.AsyncClient, method: str, path: str

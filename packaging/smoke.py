@@ -220,6 +220,45 @@ def phase_remote_enricher_is_bundled(binary: Path) -> None:
         stop(proc, port)
 
 
+def listener_pids(port: int, netstat_output: str) -> set[int]:
+    """The processes listening on a local TCP port, from `netstat -ano` output (Windows)."""
+    pids: set[int] = set()
+    for line in netstat_output.splitlines():
+        parts = line.split()
+        # TCP  127.0.0.1:8000  0.0.0.0:0  LISTENING  1234
+        if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING":
+            if parts[1].rsplit(":", 1)[-1] == str(port) and parts[4].isdigit():
+                pids.add(int(parts[4]))
+    return pids
+
+
+def kill_listener(port: int) -> None:
+    """Best effort: stop whatever is listening on `port`. The killed-launcher phase starts a
+    server it may not be able to stop by its handle, because the launcher it holds is already
+    dead; a server left over would keep the port and the database for the next run."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(  # noqa: S603
+                ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=20
+            ).stdout
+            for pid in listener_pids(port, out):
+                subprocess.run(  # noqa: S603
+                    ["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=20
+                )
+        else:
+            out = subprocess.run(  # noqa: S603
+                ["lsof", "-t", "-i", f"tcp:{port}", "-sTCP:LISTEN"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            ).stdout
+            for word in out.split():
+                if word.isdigit():
+                    os.kill(int(word), 9)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"could not stop the server on port {port}: {exc}", flush=True)
+
+
 def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     """Something kills the program outright (Task Manager, or Flockdeck stopping it). The server
     behind the launcher must not be left running, holding the port and the database."""
@@ -227,17 +266,24 @@ def phase_killed_launcher_takes_the_server_with_it(binary: Path) -> None:
     data, port = Path(tempfile.mkdtemp(prefix="lens-smoke-")), free_port()
     base = f"http://127.0.0.1:{port}"
     proc = start(binary, port, data, {})
-    wait_ready(proc, base)
-    proc.kill()  # the hard kill: no chance to pass it on
-    deadline = time.monotonic() + 40
-    while time.monotonic() < deadline:
-        try:
-            call(base + "/healthz")
-        except OSError:
-            check(True, "the server stopped listening after its launcher was killed")
-            return
-        time.sleep(0.5)
-    check(False, "the server stopped listening after its launcher was killed")
+    stopped = False
+    try:
+        wait_ready(proc, base)
+        proc.kill()  # the hard kill: no chance to pass it on
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            try:
+                call(base + "/healthz")
+            except OSError:
+                stopped = True
+                break
+            time.sleep(0.5)
+    finally:
+        if not stopped:
+            # Failed, or interrupted: do not leave the server behind with the port and database.
+            proc.kill()
+            kill_listener(port)
+    check(stopped, "the server stopped listening after its launcher was killed")
 
 
 # What Flockdeck's helper supervisor passes through from its own environment (internal/helpers/
