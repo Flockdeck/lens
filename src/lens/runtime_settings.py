@@ -90,6 +90,29 @@ def _fingerprint(s: Settings) -> tuple[Any, ...]:
     return ("mock",)
 
 
+class _Lease:
+    """An enricher built from one set of settings, and how many calls are using it. A replaced
+    enricher is closed only when the last of those calls ends, so a settings change never breaks
+    an enrichment that is in flight."""
+
+    def __init__(self, inner: Enricher) -> None:
+        self.inner = inner
+        self.users = 0
+        self.retired = False
+
+    async def close_if_idle(self) -> None:
+        if not (self.retired and self.users == 0):
+            return
+        closer = getattr(self.inner, "aclose", None)
+        if closer is None:
+            return
+        self.retired = False  # close once
+        try:
+            await closer()
+        except Exception as exc:
+            log.warning("enricher close failed", extra={"exc_type": type(exc).__name__})
+
+
 class DynamicEnricher:
     """An `Enricher` that follows the settings: before each call it looks at the stored overrides
     (at most every `ttl` seconds), and builds a new enricher when they changed. A bad setting fails
@@ -104,22 +127,25 @@ class DynamicEnricher:
         self._ttl = ttl
         self._checked = float("-inf")
         self._fingerprint: tuple[Any, ...] | None = None
-        self._inner: Enricher | None = None
+        self._inner: _Lease | None = None
         self._error: str | None = None
         self._lock = asyncio.Lock()
 
-    async def _current(self) -> Enricher:
+    async def _lease(self) -> _Lease:
         async with self._lock:
             if self._fingerprint is None or time.monotonic() - self._checked >= self._ttl:
                 settings = await effective_settings(self._sm, self._base)
                 fingerprint = _fingerprint(settings)
                 if fingerprint != self._fingerprint:
-                    self._inner, self._error = None, None
+                    old, self._inner, self._error = self._inner, None, None
+                    if old is not None:
+                        old.retired = True
+                        await old.close_if_idle()
                     try:
                         # Building a client loads the TLS certificates, which takes seconds on
                         # some machines (and longer in a freshly unpacked binary); on the event
                         # loop that would freeze the web UI.
-                        self._inner = await asyncio.to_thread(build_enricher, settings)
+                        self._inner = _Lease(await asyncio.to_thread(build_enricher, settings))
                     except ValueError as exc:  # a missing key, a URL that is not local
                         self._error = str(exc)
                         log.warning("enricher not usable", extra={"enricher": settings.enricher})
@@ -130,13 +156,34 @@ class DynamicEnricher:
                         raise
                     self._fingerprint = fingerprint
                 self._checked = time.monotonic()
-            inner, error = self._inner, self._error
-        if inner is None:
+            lease, error = self._inner, self._error
+            if lease is not None:
+                lease.users += 1
+        if lease is None:
             raise EnrichmentError(f"enricher is not configured: {error}", retryable=False)
-        return inner
+        return lease
+
+    async def _current(self) -> Enricher:
+        """The enricher in effect now (for tests and callers that do not enrich through us)."""
+        lease = await self._lease()
+        lease.users -= 1
+        return lease.inner
 
     async def enrich(self, analysis: Analysis) -> EnrichmentResult:
-        return await (await self._current()).enrich(analysis)
+        lease = await self._lease()
+        try:
+            return await lease.inner.enrich(analysis)
+        finally:
+            lease.users -= 1
+            await asyncio.shield(lease.close_if_idle())
+
+    async def aclose(self) -> None:
+        """Close the enricher in use, once its calls have ended. Call at shutdown."""
+        async with self._lock:
+            lease, self._inner, self._fingerprint = self._inner, None, None
+            if lease is not None:
+                lease.retired = True
+                await lease.close_if_idle()
 
 
 __all__ = [

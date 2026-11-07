@@ -127,6 +127,12 @@ def create_app(settings: Settings | None = None, *, run_worker: bool = False) ->
                 await worker
             except Exception as exc:
                 log.warning("worker stopped badly", extra={"exc_type": type(exc).__name__})
+        enricher = getattr(app.state, "enricher", None)
+        if enricher is not None and hasattr(enricher, "aclose"):
+            try:
+                await enricher.aclose()
+            except Exception as exc:
+                log.warning("enricher close failed", extra={"exc_type": type(exc).__name__})
         store = getattr(app.state, "store", None)  # only set once the lazy provider built it
         try:
             if store is not None:
