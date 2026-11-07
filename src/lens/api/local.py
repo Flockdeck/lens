@@ -8,8 +8,10 @@ machine), so two things are checked on every request:
 * the `Host` must be one of this machine's own names (`allowed_hosts`). That defeats DNS rebinding,
   because a rebound page still sends its own hostname.
 * a write (POST, PUT, PATCH, DELETE) that carries an `Origin`, or `Sec-Fetch-Site: cross-site`,
-  must come from one of those names too. A form on another site cannot upload, cancel, re-enrich
-  or delete.
+  must come from one of those names too, and from the port the request was sent to (the port in
+  its `Host` header; the scheme's default when there is none). A form on another site cannot
+  upload, cancel, re-enrich or delete, and nor can a page served by some other program on this
+  machine, such as a dev server on localhost:5173.
 
 curl and scripts send neither header, so they are unaffected.
 """
@@ -48,6 +50,26 @@ def _hostname(url: str) -> str | None:
     return host.lower() if host else None
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin_matches_host(origin: str, host: str) -> bool:
+    """True when `origin` names the same port the request was sent to. An absent port means the
+    scheme's default, on both sides; Origin carries the scheme and Host does not, so Origin's
+    scheme decides what an absent Host port means. Anything malformed does not match."""
+    try:
+        parts = urlsplit(origin)
+        scheme = parts.scheme.lower()
+        if scheme not in _DEFAULT_PORTS:
+            return False
+        default = _DEFAULT_PORTS[scheme]
+        origin_port = parts.port or default
+        host_port = urlsplit("//" + host).port or default
+    except ValueError:  # an unclosed bracket, a port that is not a number or is out of range
+        return False
+    return origin_port == host_port
+
+
 class LocalOnly:
     """Pure ASGI middleware, so it also sees the requests no route matches."""
 
@@ -71,7 +93,10 @@ class LocalOnly:
             if (
                 origin is not None
                 and origin != "null"
-                and self._host_of_origin(origin) not in self.allowed
+                and (
+                    self._host_of_origin(origin) not in self.allowed
+                    or not _origin_matches_host(origin, headers.get("host", ""))
+                )
             ):
                 await self._refuse(send, 403, "cross-origin request refused", scope["method"])
                 return
