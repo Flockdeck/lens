@@ -1,6 +1,6 @@
 # Known gotchas
 
-* [PyInstaller cannot cross-compile](build-needs-native-runner.md) - Each platform's binary is built on a runner of that platform; Windows on arm64 is allowed to fail.
+* [PyInstaller cannot cross-compile](build-needs-native-runner.md) - Each platform's binary is built on a runner of that platform; the build installs no dev group so Windows on arm64 needs no source builds.
 * [Claim fencing and statement order](claim-fencing-and-lock-order.md) - Item updates are conditional on the claim token, and item rows are touched before the batch row.
 * [Cleanup lock is per process](cleanup-lock-is-per-process.md) - The code and docstrings disagree about a database lock; the guard is an in-process asyncio lock.
 * [Published versions are immutable and cached for a year](downloads-are-immutable.md) - publish-downloads refuses to replace a published version with different files and never moves latest backwards.

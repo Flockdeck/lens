@@ -1178,6 +1178,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+build = [
+    { name = "pyinstaller" },
+]
 dev = [
     { name = "cryptography" },
     { name = "jsonschema" },
@@ -1208,6 +1211,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+build = [{ name = "pyinstaller", specifier = ">=6.22.3" }]
 dev = [
     { name = "cryptography", specifier = ">=50.0.2" },
     { name = "jsonschema", specifier = ">=4.26.0" },

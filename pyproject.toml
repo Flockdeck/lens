@@ -22,6 +22,11 @@ dependencies = [
 ]
 
 [dependency-groups]
+# What the release build needs on top of the runtime dependencies. Kept apart from dev so a platform
+# with no wheels for the test-only packages (cryptography has none for Windows on arm64) can still build.
+build = [
+    "pyinstaller>=6.22.3",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
