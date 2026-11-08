@@ -886,5 +886,5 @@ The smoke test runs the built executable the way a person would: upload a record
 - The Anthropic key is stored unencrypted in the SQLite file. Anyone who can read the data folder can read it.
 - Retention deletes raw files but keeps the digest-derived fields (summaries, stuck points, prompt feedback) forever. Those can quote the recording.
 - There is one writer. A very large batch of long sessions is limited by the enricher, not the database, but a slow disk would show up as write-lock waits.
-- The Windows arm64 build is marked experimental in CI because some dependencies may lack wheels there. It reports but does not block a release. The other five targets must pass.
+- All six targets must build and pass the smoke test. The release build installs only the runtime dependencies and PyInstaller (`--no-dev --group build`), since the dev group's `cryptography` has no Windows arm64 wheel.
 - A comment in `worker/queue.py` still describes a lock ordering that mattered under MySQL. It is harmless under SQLite.

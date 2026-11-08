@@ -38,8 +38,8 @@ when a release calls it. Its jobs are:
   the Linux 3.12 leg enforces the 90% coverage floor.
 - `audit`: `pip-audit` over the runtime dependencies.
 - `flockdeck-compat`: a check that a lens release is accepted by Flockdeck's own updater code.
-- `binaries`: a build and smoke test of the executable on six platforms (Windows on arm64 reports
-  but does not block).
+- `binaries`: a build and smoke test of the executable on six platforms. All six must pass: a
+  release needs an archive for each.
 - `ci-ok`: passes when all of the above pass. It is the one check to require.
 
 ## Releases
