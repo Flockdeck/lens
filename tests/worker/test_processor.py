@@ -302,3 +302,39 @@ async def test_a_retryable_failure_in_a_cancelled_batch_is_not_requeued(sm, stor
     assert (await get_item(sm, waiting)).status == ItemStatus.cancelled
     assert await claim_items(sm, 5) == []
     assert (await get_batch(sm, batch_id)).status == BatchStatus.cancelled
+
+
+async def test_an_enrichment_that_finishes_after_a_newer_upload_replaced_the_session_is_dropped(
+    sm, store
+):
+    from tests.worker.helpers import fake_enrichment
+
+    old_may_finish = asyncio.Event()
+    old_started = asyncio.Event()
+
+    class Scripted:
+        calls = 0
+
+        async def enrich(self, analysis):
+            self.calls += 1
+            if self.calls == 1:  # the older upload: its LLM call is still open
+                old_started.set()
+                await old_may_finish.wait()
+                return fake_enrichment(summary="about v1")
+            return fake_enrichment(summary="about v2")
+
+    await make_batch(sm, store, [("v1.jsonl", recording("s1", extra="v1"))])
+    await make_batch(sm, store, [("v2.jsonl", recording("s1", extra="v2"))])
+    old_claim, new_claim = await claim_items(sm, 2)
+    p = processor(sm, store, Scripted())
+    old_task = asyncio.create_task(p.process(old_claim))
+    await old_started.wait()  # v1 is stored and its LLM call is open
+    await p.process(new_claim)  # v2 replaces the session and is enriched
+    old_may_finish.set()
+    await old_task
+
+    async with sm() as db:
+        stored = (await db.execute(select(Session))).scalar_one()
+        enrichment = (await db.execute(select(Enrichment))).scalar_one()
+        assert enrichment.session_id == stored.id
+        assert enrichment.summary == "about v2"

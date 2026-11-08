@@ -217,6 +217,7 @@ class ItemProcessor:
                 raise
             raw = await db.get(RawRecording, item.raw_id)
             assert raw is not None
+            raw_id = raw.id
             # CPU-bound on up to 16 MiB: keep it off the event loop.
             analysis = await asyncio.to_thread(_analyze_blob, data)
             del data
@@ -244,6 +245,14 @@ class ItemProcessor:
         # Phase 2: no DB connection is held while the LLM runs.
         result = await self._enricher.enrich(analysis)
         async with self._sm() as db:
+            current = (
+                await db.execute(select(Session.raw_id).where(Session.id == session_id))
+            ).scalar_one_or_none()
+            if current != raw_id:
+                # A newer upload of this recording_session replaced the stored session while
+                # the LLM ran: this result describes the old recording, so drop it.
+                await db.commit()
+                return session_id
             await upsert_enrichment(db, session_id, result)
             await db.commit()
         return session_id
