@@ -144,10 +144,11 @@ if fetch "$product/$version/checksums.txt" published.txt; then
 		say "$version is already published with these same files"
 	else
 		say "$version is already published with other files than the ones in $dist; using the published ones"
-		fetch "$product/$version/checksums.txt.sig" checksums.txt.sig &&
+		if ! { fetch "$product/$version/checksums.txt.sig" checksums.txt.sig &&
 			fetch "$product/$version/manifest.json" manifest.json &&
-			fetch "$product/$version/manifest.json.sig" manifest.json.sig ||
+			fetch "$product/$version/manifest.json.sig" manifest.json.sig; }; then
 			die "$version is published with other files than the ones in $dist, and not all of its checksums.txt, manifest.json and their signatures are there to use instead, so it was interrupted part way; tag a new version"
+		fi
 		# The archives the published checksums.txt lists must be the ones this run has, by name.
 		for f in "$@"; do
 			name=${f##*/}
